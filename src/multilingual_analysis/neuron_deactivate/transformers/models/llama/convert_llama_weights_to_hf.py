@@ -17,21 +17,16 @@ import json
 import os
 import shutil
 import warnings
-from typing import List
 
 import torch
-
 from transformers import GenerationConfig, LlamaConfig, LlamaForCausalLM, LlamaTokenizer, PreTrainedTokenizerFast
 from transformers.convert_slow_tokenizer import TikTokenConverter
-
 
 try:
     from transformers import LlamaTokenizerFast
 except ImportError as e:
     warnings.warn(e)
-    warnings.warn(
-        "The converted tokenizer will be the `slow` tokenizer. To use the fast, update your `tokenizers` library and re-run the tokenizer conversion"
-    )
+    warnings.warn("The converted tokenizer will be the `slow` tokenizer. To use the fast, update your `tokenizers` library and re-run the tokenizer conversion")
     LlamaTokenizerFast = None
 
 """
@@ -98,11 +93,11 @@ def compute_intermediate_size(n, ffn_dim_multiplier=1, multiple_of=256):
 
 
 def read_json(path):
-    with open(path, "r") as f:
+    with open(path) as f:
         return json.load(f)
 
 
-def write_json(text, path):
+def write_json(text, path) -> None:
     with open(path, "w") as f:
         json.dump(text, f)
 
@@ -116,7 +111,7 @@ def write_model(
     vocab_size=None,
     num_shards=None,
     instruct=False,
-):
+) -> None:
     os.makedirs(model_path, exist_ok=True)
     tmp_model_path = os.path.join(model_path, "tmp")
     os.makedirs(tmp_model_path, exist_ok=True)
@@ -131,10 +126,7 @@ def write_model(
     dims_per_head = dim // n_heads
     base = params.get("rope_theta", 10000.0)
     inv_freq = 1.0 / (base ** (torch.arange(0, dims_per_head, 2).float() / dims_per_head))
-    if base > 10000.0 and float(llama_version) < 3:
-        max_position_embeddings = 16384
-    else:
-        max_position_embeddings = CONTEXT_LENGTH_FOR_VERSION[llama_version]
+    max_position_embeddings = 16384 if base > 10000.0 and float(llama_version) < 3 else CONTEXT_LENGTH_FOR_VERSION[llama_version]
 
     if params.get("n_kv_heads", None) is not None:
         num_key_value_heads = params["n_kv_heads"]  # for GQA / MQA
@@ -149,7 +141,6 @@ def write_model(
     def permute(w, n_heads, dim1=dim, dim2=dim):
         return w.view(n_heads, dim1 // n_heads // 2, 2, dim2).transpose(1, 2).reshape(dim1, dim2)
 
-    print(f"Fetching all parameters from the checkpoint at {input_base_path}.")
     # Load weights
     if num_shards == 1:
         # Not sharded
@@ -158,7 +149,6 @@ def write_model(
     else:
         # Sharded
         checkpoint_list = sorted([file for file in os.listdir(input_base_path) if file.endswith(".pth")])
-        print("Loading in order:", checkpoint_list)
         loaded = [torch.load(os.path.join(input_base_path, file), map_location="cpu") for file in checkpoint_list]
     param_count = 0
     index_dict = {"weight_map": {}}
@@ -167,9 +157,7 @@ def write_model(
         if num_shards == 1:
             # Unsharded
             state_dict = {
-                f"model.layers.{layer_i}.self_attn.q_proj.weight": permute(
-                    loaded[f"layers.{layer_i}.attention.wq.weight"], n_heads=n_heads
-                ),
+                f"model.layers.{layer_i}.self_attn.q_proj.weight": permute(loaded[f"layers.{layer_i}.attention.wq.weight"], n_heads=n_heads),
                 f"model.layers.{layer_i}.self_attn.k_proj.weight": permute(
                     loaded[f"layers.{layer_i}.attention.wk.weight"],
                     n_heads=num_key_value_heads,
@@ -190,31 +178,19 @@ def write_model(
             # redundant as other weights will be stitched from multiple shards. To avoid that, they are cloned.
 
             state_dict = {
-                f"model.layers.{layer_i}.input_layernorm.weight": loaded[0][
-                    f"layers.{layer_i}.attention_norm.weight"
-                ].clone(),
-                f"model.layers.{layer_i}.post_attention_layernorm.weight": loaded[0][
-                    f"layers.{layer_i}.ffn_norm.weight"
-                ].clone(),
+                f"model.layers.{layer_i}.input_layernorm.weight": loaded[0][f"layers.{layer_i}.attention_norm.weight"].clone(),
+                f"model.layers.{layer_i}.post_attention_layernorm.weight": loaded[0][f"layers.{layer_i}.ffn_norm.weight"].clone(),
             }
             state_dict[f"model.layers.{layer_i}.self_attn.q_proj.weight"] = permute(
                 torch.cat(
-                    [
-                        loaded[i][f"layers.{layer_i}.attention.wq.weight"].view(n_heads_per_shard, dims_per_head, dim)
-                        for i in range(len(loaded))
-                    ],
+                    [loaded[i][f"layers.{layer_i}.attention.wq.weight"].view(n_heads_per_shard, dims_per_head, dim) for i in range(len(loaded))],
                     dim=0,
                 ).reshape(dim, dim),
                 n_heads=n_heads,
             )
             state_dict[f"model.layers.{layer_i}.self_attn.k_proj.weight"] = permute(
                 torch.cat(
-                    [
-                        loaded[i][f"layers.{layer_i}.attention.wk.weight"].view(
-                            num_key_value_heads_per_shard, dims_per_head, dim
-                        )
-                        for i in range(len(loaded))
-                    ],
+                    [loaded[i][f"layers.{layer_i}.attention.wk.weight"].view(num_key_value_heads_per_shard, dims_per_head, dim) for i in range(len(loaded))],
                     dim=0,
                 ).reshape(key_value_dim, dim),
                 num_key_value_heads,
@@ -222,12 +198,7 @@ def write_model(
                 dim,
             )
             state_dict[f"model.layers.{layer_i}.self_attn.v_proj.weight"] = torch.cat(
-                [
-                    loaded[i][f"layers.{layer_i}.attention.wv.weight"].view(
-                        num_key_value_heads_per_shard, dims_per_head, dim
-                    )
-                    for i in range(len(loaded))
-                ],
+                [loaded[i][f"layers.{layer_i}.attention.wv.weight"].view(num_key_value_heads_per_shard, dims_per_head, dim) for i in range(len(loaded))],
                 dim=0,
             ).reshape(key_value_dim, dim)
 
@@ -262,9 +233,7 @@ def write_model(
         concat_dim = 0 if llama_version in ["3", "3.1"] else 1
         state_dict = {
             "model.norm.weight": loaded[0]["norm.weight"],
-            "model.embed_tokens.weight": torch.cat(
-                [loaded[i]["tok_embeddings.weight"] for i in range(len(loaded))], dim=concat_dim
-            ),
+            "model.embed_tokens.weight": torch.cat([loaded[i]["tok_embeddings.weight"] for i in range(len(loaded))], dim=concat_dim),
             "lm_head.weight": torch.cat([loaded[i]["output.weight"] for i in range(len(loaded))], dim=0),
         }
 
@@ -276,16 +245,13 @@ def write_model(
     # Write configs
     index_dict["metadata"] = {"total_size": param_count * 2}
     write_json(index_dict, os.path.join(tmp_model_path, "pytorch_model.bin.index.json"))
-    ffn_dim_multiplier = params["ffn_dim_multiplier"] if "ffn_dim_multiplier" in params else 1
-    multiple_of = params["multiple_of"] if "multiple_of" in params else 256
+    ffn_dim_multiplier = params.get("ffn_dim_multiplier", 1)
+    multiple_of = params.get("multiple_of", 256)
 
     if llama_version in ["3", "3.1"]:
         bos_token_id = 128000
 
-        if instruct:
-            eos_token_id = [128001, 128008, 128009]
-        else:
-            eos_token_id = 128001
+        eos_token_id = [128001, 128008, 128009] if instruct else 128001
     else:
         bos_token_id = 1
         eos_token_id = 2
@@ -320,18 +286,16 @@ def write_model(
     del loaded
     gc.collect()
 
-    print("Loading the checkpoint in a Llama model.")
     model = LlamaForCausalLM.from_pretrained(tmp_model_path, torch_dtype=torch.bfloat16, low_cpu_mem_usage=True)
     # Avoid saving this as part of the config.
     del model.config._name_or_path
     model.config.torch_dtype = torch.float16
-    print("Saving in the Transformers format.")
     model.save_pretrained(model_path, safe_serialization=safe_serialization)
     shutil.rmtree(tmp_model_path, ignore_errors=True)
 
 
 class Llama3Converter(TikTokenConverter):
-    def __init__(self, vocab_file, special_tokens=None, instruct=False, model_max_length=None, **kwargs):
+    def __init__(self, vocab_file, special_tokens=None, instruct=False, model_max_length=None, **kwargs) -> None:
         super().__init__(vocab_file, **kwargs)
         tokenizer = self.converted()
         chat_template = (
@@ -360,12 +324,9 @@ class Llama3Converter(TikTokenConverter):
 def write_tokenizer(tokenizer_path, input_tokenizer_path, llama_version="2", special_tokens=None, instruct=False):
     tokenizer_class = LlamaTokenizer if LlamaTokenizerFast is None else LlamaTokenizerFast
     if llama_version in ["3", "3.1"]:
-        tokenizer = Llama3Converter(
-            input_tokenizer_path, special_tokens, instruct, model_max_length=CONTEXT_LENGTH_FOR_VERSION[llama_version]
-        ).tokenizer
+        tokenizer = Llama3Converter(input_tokenizer_path, special_tokens, instruct, model_max_length=CONTEXT_LENGTH_FOR_VERSION[llama_version]).tokenizer
     else:
         tokenizer = tokenizer_class(input_tokenizer_path)
-    print(f"Saving a {tokenizer_class.__name__} to {tokenizer_path}.")
     tokenizer.save_pretrained(tokenizer_path)
     return tokenizer
 
@@ -401,7 +362,7 @@ DEFAULT_LLAMA_SPECIAL_TOKENS = {
 }
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--input_dir",
@@ -416,9 +377,7 @@ def main():
         "--output_dir",
         help="Location to write HF model and tokenizer",
     )
-    parser.add_argument(
-        "--safe_serialization", default=True, type=bool, help="Whether or not to save using `safetensors`."
-    )
+    parser.add_argument("--safe_serialization", default=True, type=bool, help="Whether or not to save using `safetensors`.")
     # Different Llama versions used different default values for max_position_embeddings, hence the need to be able to specify which version is being used.
     parser.add_argument(
         "--llama_version",
@@ -436,7 +395,7 @@ def main():
     parser.add_argument(
         "--special_tokens",
         default=None,
-        type=List[str],
+        type=list[str],
         help="The list of special tokens that should be added to the model.",
     )
     parser.add_argument(
@@ -447,7 +406,8 @@ def main():
     )
     args = parser.parse_args()
     if args.model_size is None and args.num_shards is None:
-        raise ValueError("You have to set at least `num_shards` if you are not giving the `model_size`")
+        msg = "You have to set at least `num_shards` if you are not giving the `model_size`"
+        raise ValueError(msg)
     if args.special_tokens is None:
         # no special tokens by default
         args.special_tokens = DEFAULT_LLAMA_SPECIAL_TOKENS.get(str(args.llama_version), [])

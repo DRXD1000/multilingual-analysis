@@ -1,4 +1,3 @@
-# coding=utf-8
 # Copyright 2020 The HuggingFace Inc. team.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,14 +13,12 @@
 # limitations under the License.
 import os
 from shutil import copyfile
-from typing import Optional, Tuple
 
 from tokenizers import processors
 
 from ...tokenization_utils_fast import PreTrainedTokenizerFast
 from ...utils import is_sentencepiece_available, logging
 from ...utils.versions import require_version
-
 
 require_version("tokenizers>=0.13.3")
 
@@ -47,8 +44,7 @@ correct. If you don't know the answer to a question, please don't share false in
 
 
 class LlamaTokenizerFast(PreTrainedTokenizerFast):
-    """
-    Construct a Llama tokenizer. Based on byte-level Byte-Pair-Encoding.
+    """Construct a Llama tokenizer. Based on byte-level Byte-Pair-Encoding.
 
     This uses notably ByteFallback and no normalization.
 
@@ -70,6 +66,7 @@ class LlamaTokenizerFast(PreTrainedTokenizerFast):
     refer to this superclass for more information regarding those methods.
 
     Args:
+    ----
         vocab_file (`str`, *optional*):
             [SentencePiece](https://github.com/google/sentencepiece) file (generally has a .model extension) that
             contains the vocabulary necessary to instantiate a tokenizer.
@@ -117,6 +114,7 @@ class LlamaTokenizerFast(PreTrainedTokenizerFast):
             Checkout the [pull request](https://github.com/huggingface/transformers/pull/24565) for more details.
         add_prefix_space (`bool`, *optional*):
             Whether or not the tokenizer should automatically add a prefix space
+
     """
 
     vocab_files_names = VOCAB_FILES_NAMES
@@ -138,7 +136,7 @@ class LlamaTokenizerFast(PreTrainedTokenizerFast):
         legacy=None,
         add_prefix_space=None,
         **kwargs,
-    ):
+    ) -> None:
         if legacy is None:
             logger.warning_once(
                 f"You are using the default legacy behaviour of the {self.__class__}. This is"
@@ -178,19 +176,19 @@ class LlamaTokenizerFast(PreTrainedTokenizerFast):
     def can_save_slow_tokenizer(self) -> bool:
         return os.path.isfile(self.vocab_file) if self.vocab_file else False
 
-    def update_post_processor(self):
-        """
-        Updates the underlying post processor with the current `bos_token` and `eos_token`.
-        """
+    def update_post_processor(self) -> None:
+        """Updates the underlying post processor with the current `bos_token` and `eos_token`."""
         bos = self.bos_token
         bos_token_id = self.bos_token_id
         if bos is None and self.add_bos_token:
-            raise ValueError("add_bos_token = True but bos_token = None")
+            msg = "add_bos_token = True but bos_token = None"
+            raise ValueError(msg)
 
         eos = self.eos_token
         eos_token_id = self.eos_token_id
         if eos is None and self.add_eos_token:
-            raise ValueError("add_eos_token = True but eos_token = None")
+            msg = "add_eos_token = True but eos_token = None"
+            raise ValueError(msg)
 
         single = f"{(bos+':0 ') if self.add_bos_token else ''}$A:0{(' '+eos+':0') if self.add_eos_token else ''}"
         pair = f"{single}{(' '+bos+':1') if self.add_bos_token else ''} $B:1{(' '+eos+':1') if self.add_eos_token else ''}"
@@ -200,9 +198,7 @@ class LlamaTokenizerFast(PreTrainedTokenizerFast):
             special_tokens.append((bos, bos_token_id))
         if self.add_eos_token:
             special_tokens.append((eos, eos_token_id))
-        self._tokenizer.post_processor = processors.TemplateProcessing(
-            single=single, pair=pair, special_tokens=special_tokens
-        )
+        self._tokenizer.post_processor = processors.TemplateProcessing(single=single, pair=pair, special_tokens=special_tokens)
 
     @property
     def add_eos_token(self):
@@ -213,28 +209,24 @@ class LlamaTokenizerFast(PreTrainedTokenizerFast):
         return self._add_bos_token
 
     @add_eos_token.setter
-    def add_eos_token(self, value):
+    def add_eos_token(self, value) -> None:
         self._add_eos_token = value
         self.update_post_processor()
 
     @add_bos_token.setter
-    def add_bos_token(self, value):
+    def add_bos_token(self, value) -> None:
         self._add_bos_token = value
         self.update_post_processor()
 
-    def save_vocabulary(self, save_directory: str, filename_prefix: Optional[str] = None) -> Tuple[str]:
+    def save_vocabulary(self, save_directory: str, filename_prefix: str | None = None) -> tuple[str]:
         if not self.can_save_slow_tokenizer:
-            raise ValueError(
-                "Your fast tokenizer does not have the necessary information to save the vocabulary for a slow "
-                "tokenizer."
-            )
+            msg = "Your fast tokenizer does not have the necessary information to save the vocabulary for a slow " "tokenizer."
+            raise ValueError(msg)
 
         if not os.path.isdir(save_directory):
             logger.error(f"Vocabulary path ({save_directory}) should be a directory")
-            return
-        out_vocab_file = os.path.join(
-            save_directory, (filename_prefix + "-" if filename_prefix else "") + VOCAB_FILES_NAMES["vocab_file"]
-        )
+            return None
+        out_vocab_file = os.path.join(save_directory, (filename_prefix + "-" if filename_prefix else "") + VOCAB_FILES_NAMES["vocab_file"])
 
         if os.path.abspath(self.vocab_file) != os.path.abspath(out_vocab_file):
             copyfile(self.vocab_file, out_vocab_file)
@@ -244,13 +236,12 @@ class LlamaTokenizerFast(PreTrainedTokenizerFast):
     @property
     # Copied from transformers.models.llama.tokenization_llama.LlamaTokenizer.default_chat_template
     def default_chat_template(self):
-        """
-        LLaMA uses [INST] and [/INST] to indicate user messages, and <<SYS>> and <</SYS>> to indicate system messages.
+        """LLaMA uses [INST] and [/INST] to indicate user messages, and <<SYS>> and <</SYS>> to indicate system messages.
         Assistant messages do not have special tokens, because LLaMA chat models are generally trained with strict
         user/assistant/user/assistant message ordering, and so assistant messages can be identified from the ordering
         rather than needing special tokens. The system message is partly 'embedded' in the first user message, which
         results in an unusual token ordering when it is present. This template should definitely be changed if you wish
-        to fine-tune a model with more flexible role ordering!
+        to fine-tune a model with more flexible role ordering!.
 
         The output should look something like:
 
@@ -292,9 +283,7 @@ class LlamaTokenizerFast(PreTrainedTokenizerFast):
         )
         template = template.replace("USE_DEFAULT_PROMPT", "true" if self.use_default_system_prompt else "false")
         default_message = DEFAULT_SYSTEM_PROMPT.replace("\n", "\\n").replace("'", "\\'")
-        template = template.replace("DEFAULT_SYSTEM_MESSAGE", default_message)
-
-        return template
+        return template.replace("DEFAULT_SYSTEM_MESSAGE", default_message)
 
     # TODO ArthurZ let's rely on the template processor instead, refactor all fast tokenizers
     # Copied from transformers.models.llama.tokenization_llama.LlamaTokenizer.build_inputs_with_special_tokens

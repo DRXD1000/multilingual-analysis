@@ -8,7 +8,7 @@ This repository contains code for the paper "[How do Large Language Models Handl
 
 ### Installation
 
-The package can be installed by running the following command at the root of this repository: 
+The package can be installed by running the following command at the root of this repository:
 
 ```shell
 conda create -n SeaExam python=3.9
@@ -45,13 +45,13 @@ python test_layer.py
 
 <img src="./figures/layer.png" alt="./" style="zoom:80%;" />
 
-## Neuron Detection (PLND) 
+## Neuron Detection (PLND)
 
 We provide codes for detecting neurons in Llama, Mistral and Gemma.
 
 ### Installation
 
-The package can be installed by running the following command at the root of this repository: 
+The package can be installed by running the following command at the root of this repository:
 
 ```shell
 conda create -n SeaExam python=3.9
@@ -83,7 +83,7 @@ We provide codes for detecting neurons in Llama, Mistral and Gemma.
 
 ### Installation
 
-The package can be installed by running the following command at the root of this repository: 
+The package can be installed by running the following command at the root of this repository:
 
 ```shell
 conda create -n SeaExam python=3.9
@@ -93,7 +93,7 @@ pip install -r requirement.txt
 
 ### Running
 
-We need to  **change transformers package**. 
+We need to  **change transformers package**.
 
 ```sh
 cd /neuron_deactivate
@@ -106,7 +106,7 @@ Neuron specific tuning code is the same for all models.
 
 ### Installation
 
-The package can be installed by running the following command at the root of this repository: 
+The package can be installed by running the following command at the root of this repository:
 
 ```shell
 conda create -n SeaExam python=3.9
@@ -116,7 +116,7 @@ pip install -r requirement.txt
 
 ### Running
 
-We need to  **change transformers package**. 
+We need to  **change transformers package**.
 
 ```sh
 cd /neuron_enhancement
@@ -128,7 +128,7 @@ python train_neuron.py
 Note that `attn_k` and `attn_v` needs to be  divided by `kv_repeat`. `index_keys` requires fitting to model you want to train and number of understanding layer and generation layer needs to be changed correspondingly.
 
 ```python
-index_keys = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]         
+index_keys = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]
 
 index_keys_under = [i for i in range(8)]
 index_keys_gen = [31-i for i in range(4)]

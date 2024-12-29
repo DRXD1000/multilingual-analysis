@@ -1,4 +1,3 @@
-# coding=utf-8
 # Copyright 2024 Google Inc. HuggingFace Inc. team. All rights reserved.
 #
 #
@@ -13,12 +12,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from typing import List, Optional, Tuple, Union
 
 import torch
 import torch.utils.checkpoint
 from torch.nn import CrossEntropyLoss
-
 from transformers.models.gemma.configuration_gemma import GemmaConfig
 from transformers.models.gemma.modeling_gemma import (
     GemmaAttention,
@@ -36,7 +33,6 @@ from ...cache_utils import Cache
 from ...modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
 from ...utils import is_flash_attn_2_available, is_flash_attn_greater_or_equal_2_10, logging
 
-
 if is_flash_attn_2_available():
     from ...modeling_flash_attention_utils import _flash_attention_forward
 
@@ -53,7 +49,7 @@ class Gemma2Config(GemmaConfig):
         sliding_window=4096,
         final_logit_softcapping=30.0,
         **super_kwargs,
-    ):
+    ) -> None:
         super().__init__(self, **super_kwargs)
         self.query_pre_attn_scalar = query_pre_attn_scalar
         self.sliding_window = sliding_window
@@ -66,21 +62,20 @@ class Gemma2RMSNorm(GemmaRMSNorm):
 
 
 class Gemma2Attention(GemmaAttention):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
+    """Multi-headed attention from 'Attention Is All You Need' paper."""
 
-    def __init__(self, config: Gemma2Config, layer_idx: Optional[int] = None):
+    def __init__(self, config: Gemma2Config, layer_idx: int | None = None) -> None:
         super().__init__(config, layer_idx)
         self.scaling = config.query_pre_attn_scalar**-0.5
 
 
 class Gemma2FlashAttention2(Gemma2Attention):
-    """
-    Gemma2 flash attention module. This module inherits from `Gemma2Attention` as the weights of the module stays
+    """Gemma2 flash attention module. This module inherits from `Gemma2Attention` as the weights of the module stays
     untouched. The only required change would be on the forward pass where it needs to correctly call the public API of
     flash attention and deal with padding tokens in case the input contains any of them.
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
         # TODO: Should be removed once Flash Attention for RoCm is bumped to 2.1.
@@ -91,13 +86,13 @@ class Gemma2FlashAttention2(Gemma2Attention):
     def forward(
         self,
         hidden_states: torch.Tensor,
-        attention_mask: Optional[torch.LongTensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        past_key_value: Optional[Cache] = None,
+        attention_mask: torch.LongTensor | None = None,
+        position_ids: torch.LongTensor | None = None,
+        past_key_value: Cache | None = None,
         output_attentions: bool = False,
         use_cache: bool = False,
-        cache_position: Optional[torch.LongTensor] = None,
-    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
+        cache_position: torch.LongTensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor | None, tuple[torch.Tensor] | None]:
         output_attentions = False
 
         bsz, q_len, _ = hidden_states.size()
@@ -178,8 +173,7 @@ class Gemma2FlashAttention2(Gemma2Attention):
 
 
 class Gemma2SdpaAttention(Gemma2Attention):
-    """
-    Gemma2 attention module using torch.nn.functional.scaled_dot_product_attention. This module inherits from
+    """Gemma2 attention module using torch.nn.functional.scaled_dot_product_attention. This module inherits from
     `Gemma2Attention` as the weights of the module stays untouched. The only changes are on the forward pass to adapt to
     SDPA API.
     """
@@ -188,13 +182,13 @@ class Gemma2SdpaAttention(Gemma2Attention):
     def forward(
         self,
         hidden_states: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        past_key_value: Optional[Cache] = None,
+        attention_mask: torch.Tensor | None = None,
+        position_ids: torch.LongTensor | None = None,
+        past_key_value: Cache | None = None,
         output_attentions: bool = False,
         use_cache: bool = False,
-        cache_position: Optional[torch.LongTensor] = None,
-    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
+        cache_position: torch.LongTensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor | None, tuple[torch.Tensor] | None]:
         if output_attentions:
             # TODO: Improve this warning with e.g. `model.config.attn_implementation = "manual"` once this is implemented.
             logger.warning_once(
@@ -245,7 +239,7 @@ class Gemma2SdpaAttention(Gemma2Attention):
 
         # We dispatch to SDPA's Flash Attention or Efficient kernels via this `is_causal` if statement instead of an inline conditional assignment
         # in SDPA to support both torch.compile's dynamic shapes and full graph options. An inline conditional prevents dynamic shapes from compiling.
-        is_causal = True if causal_mask is None and q_len > 1 else False
+        is_causal = bool(causal_mask is None and q_len > 1)
 
         attn_output = torch.nn.functional.scaled_dot_product_attention(
             query_states,
@@ -266,7 +260,7 @@ class Gemma2SdpaAttention(Gemma2Attention):
 
 
 class Gemma2DecoderLayer(GemmaDecoderLayer):
-    def __init__(self, config: Gemma2Config, layer_idx: int):
+    def __init__(self, config: Gemma2Config, layer_idx: int) -> None:
         super().__init__(config, layer_idx)
 
         self.is_sliding = bool(layer_idx % 2)
@@ -277,17 +271,15 @@ class Gemma2DecoderLayer(GemmaDecoderLayer):
     def forward(
         self,
         hidden_states: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        past_key_value: Optional[Cache] = None,
-        output_attentions: Optional[bool] = False,
-        use_cache: Optional[bool] = False,
-        cache_position: Optional[torch.LongTensor] = None,
-    ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
+        attention_mask: torch.Tensor | None = None,
+        position_ids: torch.LongTensor | None = None,
+        past_key_value: Cache | None = None,
+        output_attentions: bool | None = False,
+        use_cache: bool | None = False,
+        cache_position: torch.LongTensor | None = None,
+    ) -> tuple[torch.FloatTensor, tuple[torch.FloatTensor, torch.FloatTensor] | None]:
         if self.is_sliding and attention_mask is not None:  # efficient SDPA and no padding
-            attention_mask = attention_mask * torch.tril(
-                torch.ones_like(attention_mask), diagonal=(self.sliding_window - cache_position[-1])
-            )
+            attention_mask = attention_mask * torch.tril(torch.ones_like(attention_mask), diagonal=(self.sliding_window - cache_position[-1]))
             if cache_position[0] > 0:
                 attention_mask = attention_mask[:, -self.sliding_window :]
 
@@ -329,32 +321,27 @@ class Gemma2Model(GemmaModel):
     def forward(
         self,
         input_ids: torch.LongTensor = None,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        past_key_values: Optional[Union[Cache, List[torch.FloatTensor]]] = None,
-        inputs_embeds: Optional[torch.FloatTensor] = None,
-        use_cache: Optional[bool] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
-        cache_position: Optional[torch.LongTensor] = None,
-    ) -> Union[Tuple, BaseModelOutputWithPast]:
+        attention_mask: torch.Tensor | None = None,
+        position_ids: torch.LongTensor | None = None,
+        past_key_values: Cache | list[torch.FloatTensor] | None = None,
+        inputs_embeds: torch.FloatTensor | None = None,
+        use_cache: bool | None = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
+        cache_position: torch.LongTensor | None = None,
+    ) -> tuple | BaseModelOutputWithPast:
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
-        output_hidden_states = (
-            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
-        )
+        output_hidden_states = output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         use_cache = use_cache if use_cache is not None else self.config.use_cache
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
         if (input_ids is None) ^ (inputs_embeds is not None):
-            raise ValueError(
-                "You cannot specify both input_ids and inputs_embeds at the same time, and must specify either one"
-            )
+            msg = "You cannot specify both input_ids and inputs_embeds at the same time, and must specify either one"
+            raise ValueError(msg)
 
         if self.gradient_checkpointing and self.training and use_cache:
-            logger.warning_once(
-                "`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`."
-            )
+            logger.warning_once("`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`.")
             use_cache = False
 
         if inputs_embeds is None:
@@ -366,9 +353,7 @@ class Gemma2Model(GemmaModel):
         if position_ids is None:
             position_ids = cache_position.unsqueeze(0)
 
-        causal_mask = self._update_causal_mask(
-            attention_mask, inputs_embeds, cache_position, past_key_values, output_attentions
-        )
+        causal_mask = self._update_causal_mask(attention_mask, inputs_embeds, cache_position, past_key_values, output_attentions)
 
         # embed positions
         hidden_states = inputs_embeds
@@ -447,20 +432,16 @@ class Gemma2Model(GemmaModel):
         dtype, device = input_tensor.dtype, input_tensor.device
         min_dtype = torch.finfo(dtype).min
         sequence_length = input_tensor.shape[1]
-        if past_key_values is not None:
-            target_length = past_key_values.get_max_length()
-        else:
-            target_length = attention_mask.shape[-1]
+        target_length = past_key_values.get_max_length() if past_key_values is not None else attention_mask.shape[-1]
 
         if attention_mask is not None and attention_mask.dim() == 4:
             # in this case we assume that the mask comes already in inverted form and requires no inversion or slicing
             if attention_mask.max() != 0:
-                raise ValueError("Custom 4D attention mask should be passed in inverted form with max==0`")
+                msg = "Custom 4D attention mask should be passed in inverted form with max==0`"
+                raise ValueError(msg)
             causal_mask = attention_mask
         else:
-            causal_mask = torch.full(
-                (sequence_length, target_length), fill_value=min_dtype, dtype=dtype, device=device
-            )
+            causal_mask = torch.full((sequence_length, target_length), fill_value=min_dtype, dtype=dtype, device=device)
             if sequence_length != 1:
                 causal_mask = torch.triu(causal_mask, diagonal=1)
             causal_mask *= torch.arange(target_length, device=device) > cache_position.reshape(-1, 1)
@@ -470,9 +451,7 @@ class Gemma2Model(GemmaModel):
                 mask_length = attention_mask.shape[-1]
                 padding_mask = causal_mask[:, :, :, :mask_length] + attention_mask[:, None, None, :]
                 padding_mask = padding_mask == 0
-                causal_mask[:, :, :, :mask_length] = causal_mask[:, :, :, :mask_length].masked_fill(
-                    padding_mask, min_dtype
-                )
+                causal_mask[:, :, :, :mask_length] = causal_mask[:, :, :, :mask_length].masked_fill(padding_mask, min_dtype)
         return causal_mask
 
 
@@ -480,28 +459,29 @@ class Gemma2ForCausalLM(GemmaForCausalLM):
     def forward(
         self,
         input_ids: torch.LongTensor = None,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        past_key_values: Optional[Union[Cache, List[torch.FloatTensor]]] = None,
-        inputs_embeds: Optional[torch.FloatTensor] = None,
-        labels: Optional[torch.LongTensor] = None,
-        use_cache: Optional[bool] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
-        cache_position: Optional[torch.LongTensor] = None,
-    ) -> Union[Tuple, CausalLMOutputWithPast]:
-        r"""
-        Args:
+        attention_mask: torch.Tensor | None = None,
+        position_ids: torch.LongTensor | None = None,
+        past_key_values: Cache | list[torch.FloatTensor] | None = None,
+        inputs_embeds: torch.FloatTensor | None = None,
+        labels: torch.LongTensor | None = None,
+        use_cache: bool | None = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
+        cache_position: torch.LongTensor | None = None,
+    ) -> tuple | CausalLMOutputWithPast:
+        r"""Args:
+        ----
             labels (`torch.LongTensor` of shape `(batch_size, sequence_length)`, *optional*):
                 Labels for computing the masked language modeling loss. Indices should either be in `[0, ...,
                 config.vocab_size]` or -100 (see `input_ids` docstring). Tokens with indices set to `-100` are ignored
                 (masked), the loss is only computed for the tokens with labels in `[0, ..., config.vocab_size]`.
 
         Returns:
+        -------
 
         Example:
-
+        -------
         ```python
         >>> from transformers import AutoTokenizer, GemmaForCausalLM
 
@@ -515,11 +495,11 @@ class Gemma2ForCausalLM(GemmaForCausalLM):
         >>> generate_ids = model.generate(inputs.input_ids, max_length=30)
         >>> tokenizer.batch_decode(generate_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
         "What is your favorite condiment?"
-        ```"""
+        ```
+
+        """
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
-        output_hidden_states = (
-            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
-        )
+        output_hidden_states = output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
         # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
@@ -559,7 +539,7 @@ class Gemma2ForCausalLM(GemmaForCausalLM):
 
         if not return_dict:
             output = (logits,) + outputs[1:]
-            return (loss,) + output if loss is not None else output
+            return (loss, *output) if loss is not None else output
 
         return CausalLMOutputWithPast(
             loss=loss,

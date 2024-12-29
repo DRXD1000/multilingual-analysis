@@ -1,4 +1,3 @@
-# coding=utf-8
 # Copyright 2023 The HuggingFace Inc. team.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,30 +13,26 @@
 # limitations under the License.
 
 from queue import Queue
-from typing import TYPE_CHECKING, Optional
-
+from typing import TYPE_CHECKING, Never
 
 if TYPE_CHECKING:
     from ..models.auto import AutoTokenizer
 
 
 class BaseStreamer:
-    """
-    Base class from which `.generate()` streamers should inherit.
-    """
+    """Base class from which `.generate()` streamers should inherit."""
 
-    def put(self, value):
-        """Function that is called by `.generate()` to push new tokens"""
-        raise NotImplementedError()
+    def put(self, value) -> Never:
+        """Function that is called by `.generate()` to push new tokens."""
+        raise NotImplementedError
 
-    def end(self):
-        """Function that is called by `.generate()` to signal the end of generation"""
-        raise NotImplementedError()
+    def end(self) -> Never:
+        """Function that is called by `.generate()` to signal the end of generation."""
+        raise NotImplementedError
 
 
 class TextStreamer(BaseStreamer):
-    """
-    Simple text streamer that prints the token(s) to stdout as soon as entire words are formed.
+    """Simple text streamer that prints the token(s) to stdout as soon as entire words are formed.
 
     <Tip warning={true}>
 
@@ -45,7 +40,8 @@ class TextStreamer(BaseStreamer):
 
     </Tip>
 
-    Parameters:
+    Parameters
+    ----------
         tokenizer (`AutoTokenizer`):
             The tokenized used to decode the tokens.
         skip_prompt (`bool`, *optional*, defaults to `False`):
@@ -53,8 +49,8 @@ class TextStreamer(BaseStreamer):
         decode_kwargs (`dict`, *optional*):
             Additional keyword arguments to pass to the tokenizer's `decode` method.
 
-    Examples:
-
+    Examples
+    --------
         ```python
         >>> from transformers import AutoModelForCausalLM, AutoTokenizer, TextStreamer
 
@@ -67,9 +63,10 @@ class TextStreamer(BaseStreamer):
         >>> _ = model.generate(**inputs, streamer=streamer, max_new_tokens=20)
         An increasing sequence: one, two, three, four, five, six, seven, eight, nine, ten, eleven,
         ```
+
     """
 
-    def __init__(self, tokenizer: "AutoTokenizer", skip_prompt: bool = False, **decode_kwargs):
+    def __init__(self, tokenizer: "AutoTokenizer", skip_prompt: bool = False, **decode_kwargs) -> None:
         self.tokenizer = tokenizer
         self.skip_prompt = skip_prompt
         self.decode_kwargs = decode_kwargs
@@ -79,13 +76,12 @@ class TextStreamer(BaseStreamer):
         self.print_len = 0
         self.next_tokens_are_prompt = True
 
-    def put(self, value):
-        """
-        Receives tokens, decodes them, and prints them to stdout as soon as they form entire words.
-        """
+    def put(self, value) -> None:
+        """Receives tokens, decodes them, and prints them to stdout as soon as they form entire words."""
         if len(value.shape) > 1 and value.shape[0] > 1:
-            raise ValueError("TextStreamer only supports batch size 1")
-        elif len(value.shape) > 1:
+            msg = "TextStreamer only supports batch size 1"
+            raise ValueError(msg)
+        if len(value.shape) > 1:
             value = value[0]
 
         if self.skip_prompt and self.next_tokens_are_prompt:
@@ -113,7 +109,7 @@ class TextStreamer(BaseStreamer):
 
         self.on_finalized_text(printable_text)
 
-    def end(self):
+    def end(self) -> None:
         """Flushes any remaining cache and prints a newline to stdout."""
         # Flush the cache, if it exists
         if len(self.token_cache) > 0:
@@ -127,11 +123,10 @@ class TextStreamer(BaseStreamer):
         self.next_tokens_are_prompt = True
         self.on_finalized_text(printable_text, stream_end=True)
 
-    def on_finalized_text(self, text: str, stream_end: bool = False):
+    def on_finalized_text(self, text: str, stream_end: bool = False) -> None:
         """Prints the new text to stdout. If the stream is ending, also prints a newline."""
-        print(text, flush=True, end="" if not stream_end else None)
 
-    def _is_chinese_char(self, cp):
+    def _is_chinese_char(self, cp) -> bool:
         """Checks whether CP is the codepoint of a CJK character."""
         # This defines a "chinese character" as anything in the CJK Unicode block:
         #   https://en.wikipedia.org/wiki/CJK_Unified_Ideographs_(Unicode_block)
@@ -141,24 +136,28 @@ class TextStreamer(BaseStreamer):
         # as is Japanese Hiragana and Katakana. Those alphabets are used to write
         # space-separated words, so they are not treated specially and handled
         # like the all of the other languages.
-        if (
-            (cp >= 0x4E00 and cp <= 0x9FFF)
-            or (cp >= 0x3400 and cp <= 0x4DBF)  #
-            or (cp >= 0x20000 and cp <= 0x2A6DF)  #
-            or (cp >= 0x2A700 and cp <= 0x2B73F)  #
-            or (cp >= 0x2B740 and cp <= 0x2B81F)  #
-            or (cp >= 0x2B820 and cp <= 0x2CEAF)  #
-            or (cp >= 0xF900 and cp <= 0xFAFF)
-            or (cp >= 0x2F800 and cp <= 0x2FA1F)  #
-        ):  #
-            return True
-
-        return False
+        return bool(
+            cp >= 19968
+            and cp <= 40959
+            or cp >= 13312
+            and cp <= 19903
+            or cp >= 131072
+            and cp <= 173791
+            or cp >= 173824
+            and cp <= 177983
+            or cp >= 177984
+            and cp <= 178207
+            or cp >= 178208
+            and cp <= 183983
+            or cp >= 63744
+            and cp <= 64255
+            or cp >= 194560
+            and cp <= 195103
+        )
 
 
 class TextIteratorStreamer(TextStreamer):
-    """
-    Streamer that stores print-ready text in a queue, to be used by a downstream application as an iterator. This is
+    """Streamer that stores print-ready text in a queue, to be used by a downstream application as an iterator. This is
     useful for applications that benefit from acessing the generated text in a non-blocking way (e.g. in an interactive
     Gradio demo).
 
@@ -168,7 +167,8 @@ class TextIteratorStreamer(TextStreamer):
 
     </Tip>
 
-    Parameters:
+    Parameters
+    ----------
         tokenizer (`AutoTokenizer`):
             The tokenized used to decode the tokens.
         skip_prompt (`bool`, *optional*, defaults to `False`):
@@ -179,8 +179,8 @@ class TextIteratorStreamer(TextStreamer):
         decode_kwargs (`dict`, *optional*):
             Additional keyword arguments to pass to the tokenizer's `decode` method.
 
-    Examples:
-
+    Examples
+    --------
         ```python
         >>> from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
         >>> from threading import Thread
@@ -200,17 +200,16 @@ class TextIteratorStreamer(TextStreamer):
         >>> generated_text
         'An increasing sequence: one, two, three, four, five, six, seven, eight, nine, ten, eleven,'
         ```
+
     """
 
-    def __init__(
-        self, tokenizer: "AutoTokenizer", skip_prompt: bool = False, timeout: Optional[float] = None, **decode_kwargs
-    ):
+    def __init__(self, tokenizer: "AutoTokenizer", skip_prompt: bool = False, timeout: float | None = None, **decode_kwargs) -> None:
         super().__init__(tokenizer, skip_prompt, **decode_kwargs)
         self.text_queue = Queue()
         self.stop_signal = None
         self.timeout = timeout
 
-    def on_finalized_text(self, text: str, stream_end: bool = False):
+    def on_finalized_text(self, text: str, stream_end: bool = False) -> None:
         """Put the new text in the queue. If the stream is ending, also put a stop signal in the queue."""
         self.text_queue.put(text, timeout=self.timeout)
         if stream_end:
@@ -222,6 +221,5 @@ class TextIteratorStreamer(TextStreamer):
     def __next__(self):
         value = self.text_queue.get(timeout=self.timeout)
         if value == self.stop_signal:
-            raise StopIteration()
-        else:
-            return value
+            raise StopIteration
+        return value

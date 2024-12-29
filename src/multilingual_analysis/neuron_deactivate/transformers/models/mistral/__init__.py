@@ -21,7 +21,6 @@ from ...utils import (
     is_torch_available,
 )
 
-
 _import_structure = {
     "configuration_mistral": ["MistralConfig"],
 }
@@ -29,7 +28,7 @@ _import_structure = {
 
 try:
     if not is_torch_available():
-        raise OptionalDependencyNotAvailable()
+        raise OptionalDependencyNotAvailable
 except OptionalDependencyNotAvailable:
     pass
 else:
@@ -43,7 +42,7 @@ else:
 
 try:
     if not is_flax_available():
-        raise OptionalDependencyNotAvailable()
+        raise OptionalDependencyNotAvailable
 except OptionalDependencyNotAvailable:
     pass
 else:
@@ -55,7 +54,7 @@ else:
 
 try:
     if not is_tf_available():
-        raise OptionalDependencyNotAvailable()
+        raise OptionalDependencyNotAvailable
 except OptionalDependencyNotAvailable:
     pass
 else:
@@ -72,7 +71,7 @@ if TYPE_CHECKING:
 
     try:
         if not is_torch_available():
-            raise OptionalDependencyNotAvailable()
+            raise OptionalDependencyNotAvailable
     except OptionalDependencyNotAvailable:
         pass
     else:
@@ -86,7 +85,7 @@ if TYPE_CHECKING:
 
     try:
         if not is_flax_available():
-            raise OptionalDependencyNotAvailable()
+            raise OptionalDependencyNotAvailable
     except OptionalDependencyNotAvailable:
         pass
     else:
@@ -98,7 +97,7 @@ if TYPE_CHECKING:
 
     try:
         if not is_tf_available():
-            raise OptionalDependencyNotAvailable()
+            raise OptionalDependencyNotAvailable
     except OptionalDependencyNotAvailable:
         pass
     else:

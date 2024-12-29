@@ -1,4 +1,3 @@
-# coding=utf-8
 # Copyright 2022 EleutherAI and the HuggingFace Inc. team. All rights reserved.
 #
 # This code is based on EleutherAI's GPT-NeoX library and the GPT-NeoX
@@ -17,15 +16,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""LLaMA model configuration"""
+"""LLaMA model configuration."""
 
 from ...configuration_utils import PretrainedConfig
 from ...modeling_rope_utils import rope_config_validation
 
 
 class LlamaConfig(PretrainedConfig):
-    r"""
-    This is the configuration class to store the configuration of a [`LlamaModel`]. It is used to instantiate an LLaMA
+    r"""This is the configuration class to store the configuration of a [`LlamaModel`]. It is used to instantiate an LLaMA
     model according to the specified arguments, defining the model architecture. Instantiating a configuration with the
     defaults will yield a similar configuration to that of the LLaMA-7B.
 
@@ -34,6 +32,7 @@ class LlamaConfig(PretrainedConfig):
 
 
     Args:
+    ----
         vocab_size (`int`, *optional*, defaults to 32000):
             Vocabulary size of the LLaMA model. Defines the number of different tokens that can be represented by the
             `inputs_ids` passed when calling [`LlamaModel`]
@@ -135,7 +134,9 @@ class LlamaConfig(PretrainedConfig):
 
     >>> # Accessing the model configuration
     >>> configuration = model.config
-    ```"""
+    ```
+
+    """
 
     model_type = "llama"
     keys_to_ignore_at_inference = ["past_key_values"]
@@ -164,7 +165,7 @@ class LlamaConfig(PretrainedConfig):
         attention_dropout=0.0,
         mlp_bias=False,
         **kwargs,
-    ):
+    ) -> None:
         self.vocab_size = vocab_size
         self.max_position_embeddings = max_position_embeddings
         self.hidden_size = hidden_size

@@ -1,4 +1,3 @@
-# coding=utf-8
 # Copyright 2022 The HuggingFace Inc. team.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,7 +18,7 @@ import json
 import os
 import warnings
 from dataclasses import dataclass, is_dataclass
-from typing import TYPE_CHECKING, Any, Dict, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional
 
 from .. import __version__
 from ..configuration_utils import PretrainedConfig
@@ -34,7 +33,6 @@ from ..utils import (
     is_torch_available,
     logging,
 )
-
 
 if TYPE_CHECKING:
     from ..modeling_utils import PreTrainedModel
@@ -51,9 +49,7 @@ if is_torch_available():
 
 
 class GenerationMode(ExplicitEnum):
-    """
-    Possible generation modes, downstream of the [`~generation.GenerationMixin.generate`] method.
-    """
+    """Possible generation modes, downstream of the [`~generation.GenerationMixin.generate`] method."""
 
     # Non-beam methods
     CONTRASTIVE_SEARCH = "contrastive_search"
@@ -70,8 +66,7 @@ class GenerationMode(ExplicitEnum):
 
 class GenerationConfig(PushToHubMixin):
     # no-format
-    r"""
-    Class that holds a configuration for a generation task. A `generate` call supports the following generation methods
+    r"""Class that holds a configuration for a generation task. A `generate` call supports the following generation methods
     for text-decoder, text-to-text, speech-to-text, and vision-to-text models:
 
         - *greedy decoding* if `num_beams=1` and `do_sample=False`
@@ -337,7 +332,7 @@ class GenerationConfig(PushToHubMixin):
             present in `generate`'s signature will be used in the model forward pass.
     """
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs) -> None:
         # Parameters that control the length of the output
         self.max_length = kwargs.pop("max_length", 20)
         self.max_new_tokens = kwargs.pop("max_new_tokens", None)
@@ -445,9 +440,9 @@ class GenerationConfig(PushToHubMixin):
             for key, value in kwargs.items():
                 try:
                     setattr(self, key, value)
-                except AttributeError as err:
-                    logger.error(f"Can't set {key} with value {value} for {self}")
-                    raise err
+                except AttributeError:
+                    logger.exception(f"Can't set {key} with value {value} for {self}")
+                    raise
 
         # Validate the values of the attributes
         self.validate(is_init=True)
@@ -463,20 +458,21 @@ class GenerationConfig(PushToHubMixin):
         other_without_metadata = other.to_json_string(use_diff=False, ignore_metadata=True)
         return self_without_metadata == other_without_metadata
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"{self.__class__.__name__} {self.to_json_string(ignore_metadata=True)}"
 
     def get_generation_mode(self, assistant_model: Optional["PreTrainedModel"] = None) -> GenerationMode:
-        """
-        Returns the generation mode triggered by the [`GenerationConfig`] instance.
+        """Returns the generation mode triggered by the [`GenerationConfig`] instance.
 
         Arg:
             assistant_model (`PreTrainedModel`, *optional*):
                 The assistant model to be used for assisted generation. If set, the generation mode will be
                 assisted generation.
 
-        Returns:
+        Returns
+        -------
             `GenerationMode`: The generation mode triggered by the instance.
+
         """
         # TODO joao: find out a way of not depending on external fields (e.g. `assistant_model`), then make this a
         # property and part of the `__repr__`
@@ -484,49 +480,38 @@ class GenerationConfig(PushToHubMixin):
             generation_mode = GenerationMode.CONSTRAINED_BEAM_SEARCH
         elif self.num_beams == 1:
             if self.do_sample is False:
-                if (
-                    self.top_k is not None
-                    and self.top_k > 1
-                    and self.penalty_alpha is not None
-                    and self.penalty_alpha > 0
-                ):
+                if self.top_k is not None and self.top_k > 1 and self.penalty_alpha is not None and self.penalty_alpha > 0:
                     generation_mode = GenerationMode.CONTRASTIVE_SEARCH
                 else:
                     generation_mode = GenerationMode.GREEDY_SEARCH
             else:
                 generation_mode = GenerationMode.SAMPLE
+        elif self.num_beam_groups > 1:
+            generation_mode = GenerationMode.GROUP_BEAM_SEARCH
+        elif self.do_sample is True:
+            generation_mode = GenerationMode.BEAM_SAMPLE
         else:
-            if self.num_beam_groups > 1:
-                generation_mode = GenerationMode.GROUP_BEAM_SEARCH
-            elif self.do_sample is True:
-                generation_mode = GenerationMode.BEAM_SAMPLE
-            else:
-                generation_mode = GenerationMode.BEAM_SEARCH
+            generation_mode = GenerationMode.BEAM_SEARCH
 
         # Assisted generation may extend some generation modes
         if assistant_model is not None or self.prompt_lookup_num_tokens is not None:
             if generation_mode in ("greedy_search", "sample"):
                 generation_mode = GenerationMode.ASSISTED_GENERATION
             else:
-                raise ValueError(
-                    "You've set `assistant_model`, which triggers assisted generate. Currently, assisted generate "
-                    "is only supported with Greedy Search and Sample."
-                )
+                msg = "You've set `assistant_model`, which triggers assisted generate. Currently, assisted generate " "is only supported with Greedy Search and Sample."
+                raise ValueError(msg)
 
         # DoLa generation may extend some generation modes
         if self.dola_layers is not None:
             if generation_mode in ("greedy_search", "sample"):
                 generation_mode = GenerationMode.DOLA_GENERATION
             else:
-                raise ValueError(
-                    "You've set `dola_layers`, which triggers DoLa generate. Currently, DoLa generate "
-                    "is only supported with Greedy Search and Sample."
-                )
+                msg = "You've set `dola_layers`, which triggers DoLa generate. Currently, DoLa generate " "is only supported with Greedy Search and Sample."
+                raise ValueError(msg)
         return generation_mode
 
-    def validate(self, is_init=False):
-        """
-        Validates the values of the attributes of the [`GenerationConfig`] instance. Raises exceptions in the presence
+    def validate(self, is_init=False) -> None:
+        """Validates the values of the attributes of the [`GenerationConfig`] instance. Raises exceptions in the presence
         of parameterization that can be detected as incorrect from the configuration instance alone.
 
         Note that some parameters not validated here are best validated at generate runtime, as they may depend on
@@ -536,12 +521,13 @@ class GenerationConfig(PushToHubMixin):
             is_init (`bool`, *optional*, defaults to `False`):
                 Whether the validation is performed during the initialization of the instance.
         """
-
         # Validation of individual attributes
         if self.early_stopping not in {True, False, "never"}:
-            raise ValueError(f"`early_stopping` must be a boolean or 'never', but is {self.early_stopping}.")
+            msg = f"`early_stopping` must be a boolean or 'never', but is {self.early_stopping}."
+            raise ValueError(msg)
         if self.max_new_tokens is not None and self.max_new_tokens <= 0:
-            raise ValueError(f"`max_new_tokens` must be greater than 0, but is {self.max_new_tokens}.")
+            msg = f"`max_new_tokens` must be greater than 0, but is {self.max_new_tokens}."
+            raise ValueError(msg)
         if self.pad_token_id is not None and self.pad_token_id < 0:
             warnings.warn(
                 f"`pad_token_id` should be positive but got {self.pad_token_id}. This will cause errors when batch generating, if there is padding. "
@@ -560,8 +546,7 @@ class GenerationConfig(PushToHubMixin):
         if self.do_sample is False:
             greedy_wrong_parameter_msg = (
                 "`do_sample` is set to `False`. However, `{flag_name}` is set to `{flag_value}` -- this flag is only "
-                "used in sample-based generation modes. You should set `do_sample=True` or unset `{flag_name}`."
-                + fix_location
+                "used in sample-based generation modes. You should set `do_sample=True` or unset `{flag_name}`." + fix_location
             )
             if self.temperature is not None and self.temperature != 1.0:
                 warnings.warn(
@@ -583,9 +568,7 @@ class GenerationConfig(PushToHubMixin):
                     greedy_wrong_parameter_msg.format(flag_name="typical_p", flag_value=self.typical_p),
                     UserWarning,
                 )
-            if (
-                self.top_k is not None and self.top_k != 50 and self.penalty_alpha is None
-            ):  # contrastive search uses top_k
+            if self.top_k is not None and self.top_k != 50 and self.penalty_alpha is None:  # contrastive search uses top_k
                 warnings.warn(
                     greedy_wrong_parameter_msg.format(flag_name="top_k", flag_value=self.top_k),
                     UserWarning,
@@ -618,16 +601,12 @@ class GenerationConfig(PushToHubMixin):
                 )
             if self.num_beam_groups is not None and self.num_beam_groups != 1:
                 warnings.warn(
-                    single_beam_wrong_parameter_msg.format(
-                        flag_name="num_beam_groups", flag_value=self.num_beam_groups
-                    ),
+                    single_beam_wrong_parameter_msg.format(flag_name="num_beam_groups", flag_value=self.num_beam_groups),
                     UserWarning,
                 )
             if self.diversity_penalty is not None and self.diversity_penalty != 0.0:
                 warnings.warn(
-                    single_beam_wrong_parameter_msg.format(
-                        flag_name="diversity_penalty", flag_value=self.diversity_penalty
-                    ),
+                    single_beam_wrong_parameter_msg.format(flag_name="diversity_penalty", flag_value=self.diversity_penalty),
                     UserWarning,
                 )
             if self.length_penalty is not None and self.length_penalty != 1.0:
@@ -651,54 +630,39 @@ class GenerationConfig(PushToHubMixin):
                     "`constraints` and `force_words_ids` to `None` or unset `{flag_name}` to continue." + fix_location
                 )
                 if self.do_sample is True:
-                    raise ValueError(
-                        constrained_wrong_parameter_msg.format(flag_name="do_sample", flag_value=self.do_sample)
-                    )
+                    raise ValueError(constrained_wrong_parameter_msg.format(flag_name="do_sample", flag_value=self.do_sample))
                 if self.num_beam_groups is not None and self.num_beam_groups != 1:
-                    raise ValueError(
-                        constrained_wrong_parameter_msg.format(
-                            flag_name="num_beam_groups", flag_value=self.num_beam_groups
-                        )
-                    )
+                    raise ValueError(constrained_wrong_parameter_msg.format(flag_name="num_beam_groups", flag_value=self.num_beam_groups))
             # group beam search
             if self.diversity_penalty != 0.0 or self.num_beam_groups != 1:
-                group_error_prefix = (
-                    "`diversity_penalty` is not 0.0 or `num_beam_groups` is not 1, triggering group beam search. In "
-                    "this generation mode, "
-                )
+                group_error_prefix = "`diversity_penalty` is not 0.0 or `num_beam_groups` is not 1, triggering group beam search. In " "this generation mode, "
                 if self.do_sample is True:
                     raise ValueError(group_error_prefix + "`do_sample` must be set to `False`")
                 if self.num_beams % self.num_beam_groups != 0:
                     raise ValueError(group_error_prefix + "`num_beams` should be divisible by `num_beam_groups`")
                 if self.diversity_penalty == 0.0:
-                    raise ValueError(
-                        group_error_prefix
-                        + "`diversity_penalty` should be greater than `0.0`, otherwise your groups will be identical."
-                    )
+                    raise ValueError(group_error_prefix + "`diversity_penalty` should be greater than `0.0`, otherwise your groups will be identical.")
 
         # 4. check `num_return_sequences`
         if self.num_return_sequences != 1:
             if self.num_beams == 1:
                 if self.do_sample is False:
-                    raise ValueError(
-                        "Greedy methods without beam search do not support `num_return_sequences` different than 1 "
-                        f"(got {self.num_return_sequences})."
-                    )
+                    msg = "Greedy methods without beam search do not support `num_return_sequences` different than 1 " f"(got {self.num_return_sequences})."
+                    raise ValueError(msg)
             elif self.num_return_sequences > self.num_beams:
-                raise ValueError(
-                    f"`num_return_sequences` ({self.num_return_sequences}) has to be smaller or equal to `num_beams` "
-                    f"({self.num_beams})."
-                )
+                msg = f"`num_return_sequences` ({self.num_return_sequences}) has to be smaller or equal to `num_beams` " f"({self.num_beams})."
+                raise ValueError(msg)
 
         # 5. check `cache_config`
         if self.cache_config is not None:
             cache_class = NEEDS_CACHE_CONFIG.get(self.cache_implementation)
             if cache_class is None:
-                raise ValueError(
+                msg = (
                     "You provided a `cache_config` but the cache implementation you are using "
                     f"({self.cache_implementation}) does not require any config. Make sure to use the "
                     "correct cache implementation matching your cache config."
                 )
+                raise ValueError(msg)
             if not isinstance(self.cache_config, cache_class):
                 self.cache_config = cache_class.from_dict(self.cache_config)
             self.cache_config.validate()
@@ -722,10 +686,8 @@ class GenerationConfig(PushToHubMixin):
         )
         for arg in generate_arguments:
             if hasattr(self, arg):
-                raise ValueError(
-                    f"Argument `{arg}` is not a valid argument of `GenerationConfig`. It should be passed to "
-                    "`generate()` (or a pipeline) directly."
-                )
+                msg = f"Argument `{arg}` is not a valid argument of `GenerationConfig`. It should be passed to " "`generate()` (or a pipeline) directly."
+                raise ValueError(msg)
 
         # 6. if dola_layers is set, check if repetition_penalty is set to >= 1.2
         if self.dola_layers is not None and (self.repetition_penalty is None or self.repetition_penalty < 1.2):
@@ -740,16 +702,16 @@ class GenerationConfig(PushToHubMixin):
 
     def save_pretrained(
         self,
-        save_directory: Union[str, os.PathLike],
-        config_file_name: Optional[Union[str, os.PathLike]] = None,
+        save_directory: str | os.PathLike,
+        config_file_name: str | os.PathLike | None = None,
         push_to_hub: bool = False,
         **kwargs,
-    ):
-        r"""
-        Save a generation configuration object to the directory `save_directory`, so that it can be re-loaded using the
+    ) -> None:
+        r"""Save a generation configuration object to the directory `save_directory`, so that it can be re-loaded using the
         [`~GenerationConfig.from_pretrained`] class method.
 
         Args:
+        ----
             save_directory (`str` or `os.PathLike`):
                 Directory where the configuration JSON file will be saved (will be created if it does not exist).
             config_file_name (`str` or `os.PathLike`, *optional*, defaults to `"generation_config.json"`):
@@ -760,8 +722,8 @@ class GenerationConfig(PushToHubMixin):
                 namespace).
             kwargs (`Dict[str, Any]`, *optional*):
                 Additional key word arguments passed along to the [`~utils.PushToHubMixin.push_to_hub`] method.
-        """
 
+        """
         # At save time, validate the instance -- if any warning/exception is thrown, we refuse to save the instance.
         # This strictness is enforced to prevent bad configurations from being saved and re-used.
         try:
@@ -783,15 +745,15 @@ class GenerationConfig(PushToHubMixin):
                 FutureWarning,
             )
             if kwargs.get("token", None) is not None:
-                raise ValueError(
-                    "`token` and `use_auth_token` are both specified. Please set only the argument `token`."
-                )
+                msg = "`token` and `use_auth_token` are both specified. Please set only the argument `token`."
+                raise ValueError(msg)
             kwargs["token"] = use_auth_token
 
         config_file_name = config_file_name if config_file_name is not None else GENERATION_CONFIG_NAME
 
         if os.path.isfile(save_directory):
-            raise AssertionError(f"Provided path ({save_directory}) should be a directory, not a file")
+            msg = f"Provided path ({save_directory}) should be a directory, not a file"
+            raise AssertionError(msg)
 
         os.makedirs(save_directory, exist_ok=True)
 
@@ -818,19 +780,19 @@ class GenerationConfig(PushToHubMixin):
     @classmethod
     def from_pretrained(
         cls,
-        pretrained_model_name: Union[str, os.PathLike],
-        config_file_name: Optional[Union[str, os.PathLike]] = None,
-        cache_dir: Optional[Union[str, os.PathLike]] = None,
+        pretrained_model_name: str | os.PathLike,
+        config_file_name: str | os.PathLike | None = None,
+        cache_dir: str | os.PathLike | None = None,
         force_download: bool = False,
         local_files_only: bool = False,
-        token: Optional[Union[str, bool]] = None,
+        token: str | bool | None = None,
         revision: str = "main",
         **kwargs,
     ) -> "GenerationConfig":
-        r"""
-        Instantiate a [`GenerationConfig`] from a generation configuration file.
+        r"""Instantiate a [`GenerationConfig`] from a generation configuration file.
 
         Args:
+        ----
             pretrained_model_name (`str` or `os.PathLike`):
                 This can be either:
 
@@ -881,10 +843,11 @@ class GenerationConfig(PushToHubMixin):
                 by the `return_unused_kwargs` keyword parameter.
 
         Returns:
+        -------
             [`GenerationConfig`]: The configuration object instantiated from this pretrained model.
 
         Examples:
-
+        --------
         ```python
         >>> from transformers import GenerationConfig
 
@@ -909,7 +872,9 @@ class GenerationConfig(PushToHubMixin):
 
         >>> unused_kwargs
         {'foo': False}
-        ```"""
+        ```
+
+        """
         config_file_name = config_file_name if config_file_name is not None else GENERATION_CONFIG_NAME
 
         resume_download = kwargs.pop("resume_download", None)
@@ -926,9 +891,8 @@ class GenerationConfig(PushToHubMixin):
                 FutureWarning,
             )
             if token is not None:
-                raise ValueError(
-                    "`token` and `use_auth_token` are both specified. Please set only the argument `token`."
-                )
+                msg = "`token` and `use_auth_token` are both specified. Please set only the argument `token`."
+                raise ValueError(msg)
             token = use_auth_token
 
         user_agent = {"file_type": "config", "from_auto_class": from_auto_class}
@@ -965,27 +929,27 @@ class GenerationConfig(PushToHubMixin):
                     _commit_hash=commit_hash,
                 )
                 commit_hash = extract_commit_hash(resolved_config_file, commit_hash)
-            except EnvironmentError:
+            except OSError:
                 # Raise any environment error raise by `cached_file`. It will have a helpful error message adapted to
                 # the original exception.
                 raise
             except Exception:
                 # For any other exception, we throw a generic error.
-                raise EnvironmentError(
+                msg = (
                     f"Can't load the configuration of '{pretrained_model_name}'. If you were trying to load it"
                     " from 'https://huggingface.co/models', make sure you don't have a local directory with the same"
                     f" name. Otherwise, make sure '{pretrained_model_name}' is the correct path to a directory"
                     f" containing a {configuration_file} file"
                 )
+                raise OSError(msg)
 
         try:
             # Load config dict
             config_dict = cls._dict_from_json_file(resolved_config_file)
             config_dict["_commit_hash"] = commit_hash
         except (json.JSONDecodeError, UnicodeDecodeError):
-            raise EnvironmentError(
-                f"It looks like the config file at '{resolved_config_file}' is not a valid JSON file."
-            )
+            msg = f"It looks like the config file at '{resolved_config_file}' is not a valid JSON file."
+            raise OSError(msg)
 
         if is_local:
             logger.info(f"loading configuration file {resolved_config_file}")
@@ -1002,24 +966,26 @@ class GenerationConfig(PushToHubMixin):
             return config
 
     @classmethod
-    def _dict_from_json_file(cls, json_file: Union[str, os.PathLike]):
-        with open(json_file, "r", encoding="utf-8") as reader:
+    def _dict_from_json_file(cls, json_file: str | os.PathLike):
+        with open(json_file, encoding="utf-8") as reader:
             text = reader.read()
         return json.loads(text)
 
     @classmethod
-    def from_dict(cls, config_dict: Dict[str, Any], **kwargs) -> "GenerationConfig":
-        """
-        Instantiates a [`GenerationConfig`] from a Python dictionary of parameters.
+    def from_dict(cls, config_dict: dict[str, Any], **kwargs) -> "GenerationConfig":
+        """Instantiates a [`GenerationConfig`] from a Python dictionary of parameters.
 
         Args:
+        ----
             config_dict (`Dict[str, Any]`):
                 Dictionary that will be used to instantiate the configuration object.
             kwargs (`Dict[str, Any]`):
                 Additional parameters from which to initialize the configuration object.
 
         Returns:
+        -------
             [`GenerationConfig`]: The configuration object instantiated from those parameters.
+
         """
         return_unused_kwargs = kwargs.pop("return_unused_kwargs", False)
         # Those arguments may be passed along for our internal telemetry.
@@ -1041,25 +1007,25 @@ class GenerationConfig(PushToHubMixin):
         else:
             return config
 
-    def dict_torch_dtype_to_str(self, d: Dict[str, Any]) -> None:
-        """
-        Checks whether the passed dictionary and its nested dicts have a *torch_dtype* key and if it's not None,
+    def dict_torch_dtype_to_str(self, d: dict[str, Any]) -> None:
+        """Checks whether the passed dictionary and its nested dicts have a *torch_dtype* key and if it's not None,
         converts torch.dtype to a string of just the type. For example, `torch.float32` get converted into *"float32"*
         string, which can then be stored in the json format.
         """
-        if d.get("torch_dtype", None) is not None and not isinstance(d["torch_dtype"], str):
+        if d.get("torch_dtype") is not None and not isinstance(d["torch_dtype"], str):
             d["torch_dtype"] = str(d["torch_dtype"]).split(".")[1]
         for value in d.values():
             if isinstance(value, dict):
                 self.dict_torch_dtype_to_str(value)
 
-    def to_diff_dict(self) -> Dict[str, Any]:
-        """
-        Removes all attributes from config which correspond to the default config attributes for better readability and
+    def to_diff_dict(self) -> dict[str, Any]:
+        """Removes all attributes from config which correspond to the default config attributes for better readability and
         serializes to a Python dictionary.
 
-        Returns:
+        Returns
+        -------
             `Dict[str, Any]`: Dictionary of all the attributes that make up this configuration instance,
+
         """
         config_dict = self.to_dict()
 
@@ -1076,12 +1042,13 @@ class GenerationConfig(PushToHubMixin):
         self.dict_torch_dtype_to_str(serializable_config_dict)
         return serializable_config_dict
 
-    def to_dict(self) -> Dict[str, Any]:
-        """
-        Serializes this instance to a Python dictionary.
+    def to_dict(self) -> dict[str, Any]:
+        """Serializes this instance to a Python dictionary.
 
-        Returns:
+        Returns
+        -------
             `Dict[str, Any]`: Dictionary of all the attributes that make up this configuration instance.
+
         """
         output = copy.deepcopy(self.__dict__)
 
@@ -1098,10 +1065,10 @@ class GenerationConfig(PushToHubMixin):
         return output
 
     def to_json_string(self, use_diff: bool = True, ignore_metadata: bool = False) -> str:
-        """
-        Serializes this instance to a JSON string.
+        """Serializes this instance to a JSON string.
 
         Args:
+        ----
             use_diff (`bool`, *optional*, defaults to `True`):
                 If set to `True`, only the difference between the config instance and the default `GenerationConfig()`
                 is serialized to JSON string.
@@ -1109,12 +1076,11 @@ class GenerationConfig(PushToHubMixin):
                 Whether to ignore the metadata fields present in the instance
 
         Returns:
+        -------
             `str`: String containing all the attributes that make up this configuration instance in JSON format.
+
         """
-        if use_diff is True:
-            config_dict = self.to_diff_dict()
-        else:
-            config_dict = self.to_dict()
+        config_dict = self.to_diff_dict() if use_diff is True else self.to_dict()
 
         if ignore_metadata:
             for metadata_field in METADATA_FIELDS:
@@ -1141,32 +1107,35 @@ class GenerationConfig(PushToHubMixin):
 
         return json.dumps(config_dict, indent=2, sort_keys=True) + "\n"
 
-    def to_json_file(self, json_file_path: Union[str, os.PathLike], use_diff: bool = True):
-        """
-        Save this instance to a JSON file.
+    def to_json_file(self, json_file_path: str | os.PathLike, use_diff: bool = True) -> None:
+        """Save this instance to a JSON file.
 
         Args:
+        ----
             json_file_path (`str` or `os.PathLike`):
                 Path to the JSON file in which this configuration instance's parameters will be saved.
             use_diff (`bool`, *optional*, defaults to `True`):
                 If set to `True`, only the difference between the config instance and the default `GenerationConfig()`
                 is serialized to JSON file.
+
         """
         with open(json_file_path, "w", encoding="utf-8") as writer:
             writer.write(self.to_json_string(use_diff=use_diff))
 
     @classmethod
     def from_model_config(cls, model_config: PretrainedConfig) -> "GenerationConfig":
-        """
-        Instantiates a [`GenerationConfig`] from a [`PretrainedConfig`]. This function is useful to convert legacy
+        """Instantiates a [`GenerationConfig`] from a [`PretrainedConfig`]. This function is useful to convert legacy
         [`PretrainedConfig`] objects, which may contain generation parameters, into a stand-alone [`GenerationConfig`].
 
         Args:
+        ----
             model_config (`PretrainedConfig`):
                 The model config that will be used to instantiate the generation config.
 
         Returns:
+        -------
             [`GenerationConfig`]: The configuration object instantiated from those parameters.
+
         """
         config_dict = model_config.to_dict()
         config_dict.pop("_from_model_config", None)
@@ -1178,7 +1147,7 @@ class GenerationConfig(PushToHubMixin):
             if decoder_name in config_dict:
                 default_generation_config = GenerationConfig()
                 decoder_config = config_dict[decoder_name]
-                for attr in config.to_dict().keys():
+                for attr in config.to_dict():
                     if attr in decoder_config and getattr(config, attr) == getattr(default_generation_config, attr):
                         setattr(config, attr, decoder_config[attr])
 
@@ -1186,16 +1155,18 @@ class GenerationConfig(PushToHubMixin):
         return config
 
     def update(self, **kwargs):
-        """
-        Updates attributes of this class instance with attributes from `kwargs` if they match existing attributes,
+        """Updates attributes of this class instance with attributes from `kwargs` if they match existing attributes,
         returning all the unused kwargs.
 
         Args:
+        ----
             kwargs (`Dict[str, Any]`):
                 Dictionary of attributes to tentatively update this class.
 
         Returns:
+        -------
             `Dict[str, Any]`: Dictionary containing all the key-value pairs that were not used to update the instance.
+
         """
         to_remove = []
         for key, value in kwargs.items():
@@ -1207,14 +1178,12 @@ class GenerationConfig(PushToHubMixin):
         self.validate()
 
         # Remove all the attributes that were updated, without modifying the input dict
-        unused_kwargs = {key: value for key, value in kwargs.items() if key not in to_remove}
-        return unused_kwargs
+        return {key: value for key, value in kwargs.items() if key not in to_remove}
 
 
 @dataclass
 class WatermarkingConfig:
-    """
-    Class that holds arguments for watermark generation and should be passed into `GenerationConfig` during `generate`.
+    """Class that holds arguments for watermark generation and should be passed into `GenerationConfig` during `generate`.
     See [this paper](https://arxiv.org/abs/2306.04634) for more details on the arguments.
 
     Accepts the following keys:
@@ -1235,12 +1204,12 @@ class WatermarkingConfig:
 
     def __init__(
         self,
-        greenlist_ratio: Optional[float] = 0.25,
-        bias: Optional[float] = 2.0,
-        hashing_key: Optional[int] = 15485863,
-        seeding_scheme: Optional[str] = "lefthash",
-        context_width: Optional[int] = 1,
-    ):
+        greenlist_ratio: float | None = 0.25,
+        bias: float | None = 2.0,
+        hashing_key: int | None = 15485863,
+        seeding_scheme: str | None = "lefthash",
+        context_width: int | None = 1,
+    ) -> None:
         self.greenlist_ratio = greenlist_ratio
         self.bias = bias
         self.hashing_key = hashing_key
@@ -1249,15 +1218,17 @@ class WatermarkingConfig:
 
     @classmethod
     def from_dict(cls, config_dict, **kwargs):
-        """
-        Constructs a WatermarkingConfig instance from a dictionary of parameters.
+        """Constructs a WatermarkingConfig instance from a dictionary of parameters.
 
         Args:
+        ----
             config_dict (Dict[str, Any]): Dictionary containing configuration parameters.
             **kwargs: Additional keyword arguments to override dictionary values.
 
         Returns:
+        -------
             WatermarkingConfig: Instance of WatermarkingConfig constructed from the dictionary.
+
         """
         config = cls(**config_dict)
         to_remove = []
@@ -1269,12 +1240,13 @@ class WatermarkingConfig:
             kwargs.pop(key, None)
         return config
 
-    def to_json_file(self, json_file_path: Union[str, os.PathLike]):
-        """
-        Save this instance to a JSON file.
+    def to_json_file(self, json_file_path: str | os.PathLike) -> None:
+        """Save this instance to a JSON file.
 
         Args:
+        ----
             json_file_path (Union[str, os.PathLike]): Path to the JSON file in which this configuration instance's parameters will be saved.
+
         """
         with open(json_file_path, "w", encoding="utf-8") as writer:
             config_dict = self.to_dict()
@@ -1282,48 +1254,46 @@ class WatermarkingConfig:
 
             writer.write(json_string)
 
-    def to_dict(self) -> Dict[str, Any]:
-        """
-        Serializes this instance to a Python dictionary.
+    def to_dict(self) -> dict[str, Any]:
+        """Serializes this instance to a Python dictionary.
 
-        Returns:
+        Returns
+        -------
             Dict[str, Any]: Dictionary of all the attributes that make up this configuration instance.
+
         """
-        output = copy.deepcopy(self.__dict__)
-        return output
+        return copy.deepcopy(self.__dict__)
 
     def __iter__(self):
-        for attr, value in copy.deepcopy(self.__dict__).items():
-            yield attr, value
+        yield from copy.deepcopy(self.__dict__).items()
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"{self.__class__.__name__} {self.to_json_string()}"
 
     def to_json_string(self):
-        """
-        Serializes this instance to a JSON formatted string.
+        """Serializes this instance to a JSON formatted string.
 
-        Returns:
+        Returns
+        -------
             str: JSON formatted string representing the configuration instance.
+
         """
         return json.dumps(self.__dict__, indent=2) + "\n"
 
-    def update(self, **kwargs):
-        """
-        Update the configuration attributes with new values.
+    def update(self, **kwargs) -> None:
+        """Update the configuration attributes with new values.
 
         Args:
+        ----
             **kwargs: Keyword arguments representing configuration attributes and their new values.
+
         """
         for key, value in kwargs.items():
             if hasattr(self, key):
                 setattr(self, key, value)
 
-    def validate(self):
-        watermark_missing_arg_msg = (
-            "Some of the keys in `watermarking_config` are defined incorrectly. `{key}` should be {correct_value}` "
-            "but found {found_value}"
-        )
+    def validate(self) -> None:
+        watermark_missing_arg_msg = "Some of the keys in `watermarking_config` are defined incorrectly. `{key}` should be {correct_value}` " "but found {found_value}"
         if self.seeding_scheme not in ["selfhash", "lefthash"]:
             raise ValueError(
                 watermark_missing_arg_msg.format(

@@ -20,7 +20,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import inspect
-from typing import List, Optional, Tuple, Union
 
 import torch
 import torch.nn.functional as F
@@ -47,11 +46,10 @@ from ...utils import (
     replace_return_docstrings,
 )
 from .configuration_gemma2 import Gemma2Config
-import pdb
 
 if is_flash_attn_2_available():
     from flash_attn import flash_attn_func, flash_attn_varlen_func
-    from flash_attn.bert_padding import index_first_axis, pad_input, unpad_input  # noqa
+    from flash_attn.bert_padding import index_first_axis, pad_input, unpad_input
 
     _flash_supports_window_size = "window_size" in list(inspect.signature(flash_attn_func).parameters)
 import numpy as np
@@ -72,7 +70,7 @@ def _get_unpad_data(attention_mask):
 
 
 class Gemma2RMSNorm(nn.Module):
-    def __init__(self, dim: int, eps: float = 1e-6):
+    def __init__(self, dim: int, eps: float = 1e-6) -> None:
         super().__init__()
         self.eps = eps
         self.weight = nn.Parameter(torch.zeros(dim))
@@ -89,7 +87,7 @@ class Gemma2RMSNorm(nn.Module):
 
 
 class Gemma2RotaryEmbedding(nn.Module):
-    def __init__(self, dim, max_position_embeddings=2048, base=10000, device=None):
+    def __init__(self, dim, max_position_embeddings=2048, base=10000, device=None) -> None:
         super().__init__()
 
         self.dim = dim
@@ -127,6 +125,7 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1):
     """Applies Rotary Position Embedding to the query and key tensors.
 
     Args:
+    ----
         q (`torch.Tensor`): The query tensor.
         k (`torch.Tensor`): The key tensor.
         cos (`torch.Tensor`): The cosine part of the rotary embedding.
@@ -140,8 +139,11 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1):
             k have the shape [batch_size, heads, seq_len, head_dim], then setting unsqueeze_dim=1 makes
             cos[position_ids] and sin[position_ids] broadcastable to the shapes of q and k. Similarly, if q and k have
             the shape [batch_size, seq_len, heads, head_dim], then set unsqueeze_dim=2.
+
     Returns:
+    -------
         `tuple(torch.Tensor)` comprising of the query and key tensors rotated using the Rotary Position Embedding.
+
     """
     cos = cos.unsqueeze(unsqueeze_dim)
     sin = sin.unsqueeze(unsqueeze_dim)
@@ -151,7 +153,7 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1):
 
 
 class Gemma2MLP(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config) -> None:
         super().__init__()
         self.config = config
         self.hidden_size = config.hidden_size
@@ -169,15 +171,14 @@ class Gemma2MLP(nn.Module):
 
         if early_layers:
             return real_output, torch.sum(torch.abs(self.up_proj(x)), dim=1).squeeze().tolist(), torch.sum(torch.abs(self.up_proj(x)), dim=1).squeeze().tolist()
-        
+
         else:
             return real_output, [], []
 
 
 def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
-    """
-    This is the equivalent of torch.repeat_interleave(x, dim=1, repeats=n_rep). The hidden states go from (batch,
-    num_key_value_heads, seqlen, head_dim) to (batch, num_attention_heads, seqlen, head_dim)
+    """This is the equivalent of torch.repeat_interleave(x, dim=1, repeats=n_rep). The hidden states go from (batch,
+    num_key_value_heads, seqlen, head_dim) to (batch, num_attention_heads, seqlen, head_dim).
     """
     batch, num_key_value_heads, slen, head_dim = hidden_states.shape
     if n_rep == 1:
@@ -187,9 +188,9 @@ def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
 
 
 class Gemma2Attention(nn.Module):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
+    """Multi-headed attention from 'Attention Is All You Need' paper."""
 
-    def __init__(self, config: Gemma2Config, layer_idx: Optional[int] = None):
+    def __init__(self, config: Gemma2Config, layer_idx: int | None = None) -> None:
         super().__init__()
         self.config = config
         self.layer_idx = layer_idx
@@ -212,10 +213,8 @@ class Gemma2Attention(nn.Module):
         self.scaling = config.query_pre_attn_scalar**-0.5
 
         if self.hidden_size % self.num_heads != 0:
-            raise ValueError(
-                f"hidden_size must be divisible by num_heads (got `hidden_size`: {self.hidden_size}"
-                f" and `num_heads`: {self.num_heads})."
-            )
+            msg = f"hidden_size must be divisible by num_heads (got `hidden_size`: {self.hidden_size}" f" and `num_heads`: {self.num_heads})."
+            raise ValueError(msg)
 
         self.q_proj = nn.Linear(self.hidden_size, self.num_heads * self.head_dim, bias=config.attention_bias)
         self.k_proj = nn.Linear(self.hidden_size, self.num_key_value_heads * self.head_dim, bias=config.attention_bias)
@@ -231,13 +230,13 @@ class Gemma2Attention(nn.Module):
     def shared_forward(
         self,
         hidden_states: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        past_key_value: Optional[Cache] = None,
+        attention_mask: torch.Tensor | None = None,
+        position_ids: torch.LongTensor | None = None,
+        past_key_value: Cache | None = None,
         output_attentions: bool = False,
         use_cache: bool = False,
-        cache_position: Optional[torch.LongTensor] = None,
-    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
+        cache_position: torch.LongTensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor | None, tuple[torch.Tensor] | None]:
         bsz, q_len, _ = hidden_states.size()
 
         query_states = self.q_proj(hidden_states)
@@ -247,7 +246,6 @@ class Gemma2Attention(nn.Module):
         query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
         key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
         value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-
 
         cos, sin = self.rotary_emb(value_states, position_ids)
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
@@ -267,7 +265,7 @@ class Gemma2Attention(nn.Module):
 
         attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) * self.scaling
 
-        attn_weights_temp = torch.matmul(query_states.transpose(2,3).unsqueeze(-1), key_states.transpose(2,3).unsqueeze(-1).transpose(-2,-1))
+        attn_weights_temp = torch.matmul(query_states.transpose(2, 3).unsqueeze(-1), key_states.transpose(2, 3).unsqueeze(-1).transpose(-2, -1))
 
         if self.config.attn_logit_softcapping is not None:
             attn_weights = attn_weights / self.config.attn_logit_softcapping
@@ -278,28 +276,21 @@ class Gemma2Attention(nn.Module):
             causal_mask = attention_mask[:, :, :, : key_states.shape[-2]]
             attn_weights = attn_weights + causal_mask
 
-
-        attn_weights_temp = attn_weights.unsqueeze(2).expand(-1,-1,query_states.size()[-1],-1,-1) - attn_weights_temp
+        attn_weights_temp = attn_weights.unsqueeze(2).expand(-1, -1, query_states.size()[-1], -1, -1) - attn_weights_temp
         attn_weights_temp = nn.functional.softmax(attn_weights_temp, dim=-1, dtype=torch.float32).to(query_states.dtype)
-
 
         # upcast attention to fp32
         attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
         attn_weights = nn.functional.dropout(attn_weights, p=self.attention_dropout, training=self.training)
         attn_output = torch.matmul(attn_weights, value_states)
 
-
-        attn_weights_temp = attn_weights_temp - attn_weights.unsqueeze(2).expand(-1,-1,query_states.size()[-1],-1,-1)
+        attn_weights_temp = attn_weights_temp - attn_weights.unsqueeze(2).expand(-1, -1, query_states.size()[-1], -1, -1)
         attn_weights_temp = attn_weights_temp**2
         attn_weights_temp = attn_weights_temp.sum(dim=(-2, -1)).view(-1)
 
-
-
         if attn_output.size() != (bsz, self.num_heads, q_len, self.head_dim):
-            raise ValueError(
-                f"`attn_output` should be of size {(bsz, self.num_heads, q_len, self.head_dim)}, but is"
-                f" {attn_output.size()}"
-            )
+            msg = f"`attn_output` should be of size {(bsz, self.num_heads, q_len, self.head_dim)}, but is" f" {attn_output.size()}"
+            raise ValueError(msg)
 
         attn_output = attn_output.transpose(1, 2).contiguous()
         attn_output_temp = attn_output.reshape(bsz, q_len, 4096)
@@ -307,54 +298,57 @@ class Gemma2Attention(nn.Module):
         attn_output = attn_output.view(bsz, q_len, -1)
         attn_output_o = attn_output
 
-
         attn_output = self.o_proj(attn_output)
 
         if not output_attentions:
             attn_weights = None
 
-        return attn_output, attn_weights, past_key_value, attn_weights_temp.squeeze().tolist(), attn_weights_temp.squeeze().tolist(), attn_output_temp, torch.sum(torch.abs(attn_output_o), dim=1).squeeze().tolist()
-
+        return (
+            attn_output,
+            attn_weights,
+            past_key_value,
+            attn_weights_temp.squeeze().tolist(),
+            attn_weights_temp.squeeze().tolist(),
+            attn_output_temp,
+            torch.sum(torch.abs(attn_output_o), dim=1).squeeze().tolist(),
+        )
 
     def forward(
         self,
         hidden_states: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        past_key_value: Optional[Cache] = None,
+        attention_mask: torch.Tensor | None = None,
+        position_ids: torch.LongTensor | None = None,
+        past_key_value: Cache | None = None,
         output_attentions: bool = False,
         use_cache: bool = False,
-        cache_position: Optional[torch.LongTensor] = None,
+        cache_position: torch.LongTensor | None = None,
         early_layers: bool = False,
         **kwargs,
-    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
+    ) -> tuple[torch.Tensor, torch.Tensor | None, tuple[torch.Tensor] | None]:
         bsz, q_len, _ = hidden_states.size()
 
-
         attn_output, attn_weights, past_key_value_real, query_score, key_score, attn_output_temp, o_score = self.shared_forward(
-            hidden_states=hidden_states, 
-            attention_mask=attention_mask, 
-            position_ids = position_ids,
-            past_key_value = past_key_value,
-            output_attentions = output_attentions,
-            use_cache = use_cache,
-            )
-        
+            hidden_states=hidden_states,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            past_key_value=past_key_value,
+            output_attentions=output_attentions,
+            use_cache=use_cache,
+        )
+
         if early_layers:
             return attn_output, attn_weights, past_key_value_real, query_score, key_score, torch.sum(torch.abs(attn_output_temp), dim=1).squeeze().tolist(), o_score
         else:
             return attn_output, attn_weights, past_key_value_real, [], [], []
 
 
-
 class Gemma2FlashAttention2(Gemma2Attention):
-    """
-    Gemma2 flash attention module. This module inherits from `Gemma2Attention` as the weights of the module stays
+    """Gemma2 flash attention module. This module inherits from `Gemma2Attention` as the weights of the module stays
     untouched. The only required change would be on the forward pass where it needs to correctly call the public API of
     flash attention and deal with padding tokens in case the input contains any of them.
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
         # TODO: Should be removed once Flash Attention for RoCm is bumped to 2.1.
@@ -365,13 +359,13 @@ class Gemma2FlashAttention2(Gemma2Attention):
     def forward(
         self,
         hidden_states: torch.Tensor,
-        attention_mask: Optional[torch.LongTensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        past_key_value: Optional[Cache] = None,
+        attention_mask: torch.LongTensor | None = None,
+        position_ids: torch.LongTensor | None = None,
+        past_key_value: Cache | None = None,
         output_attentions: bool = False,
         use_cache: bool = False,
-        cache_position: Optional[torch.LongTensor] = None,
-    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
+        cache_position: torch.LongTensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor | None, tuple[torch.Tensor] | None]:
         output_attentions = False
 
         bsz, q_len, _ = hidden_states.size()
@@ -465,11 +459,11 @@ class Gemma2FlashAttention2(Gemma2Attention):
         cache_position=0,
         softcap=None,
     ):
-        """
-        Calls the forward method of Flash Attention - if the input hidden states contain at least one padding token
+        """Calls the forward method of Flash Attention - if the input hidden states contain at least one padding token
         first unpad the input, then computes the attention scores and pad the final attention scores.
 
         Args:
+        ----
             query_states (`torch.Tensor`):
                 Input query states to be passed to Flash Attention API
             key_states (`torch.Tensor`):
@@ -483,6 +477,7 @@ class Gemma2FlashAttention2(Gemma2Attention):
                 Attention dropout
             softmax_scale (`float`, *optional*):
                 The scaling of QK^T before applying softmax. Default to 1 / sqrt(head_dim)
+
         """
         if not self._flash_attn_uses_top_left_mask:
             causal = self.is_causal
@@ -491,9 +486,7 @@ class Gemma2FlashAttention2(Gemma2Attention):
             causal = self.is_causal and query_length != 1
 
         # TODO this is not compile compatible
-        use_sliding_windows = (
-            _flash_supports_window_size and self.sliding_window is not None and cache_position > self.sliding_window
-        )
+        use_sliding_windows = _flash_supports_window_size and self.sliding_window is not None and cache_position > self.sliding_window
         flash_kwargs = {"softcap"} if is_flash_attn_greater_or_equal("2.6.0") else {}
         if use_sliding_windows:
             flash_kwargs.update({"window_size": (self.sliding_window, self.sliding_window)})
@@ -523,9 +516,7 @@ class Gemma2FlashAttention2(Gemma2Attention):
 
             attn_output = pad_input(attn_output_unpad, indices_q, batch_size, query_length)
         else:
-            attn_output = flash_attn_func(
-                query_states, key_states, value_states, dropout, softmax_scale=softmax_scale, causal=causal
-            )
+            attn_output = flash_attn_func(query_states, key_states, value_states, dropout, softmax_scale=softmax_scale, causal=causal)
 
         return attn_output
 
@@ -533,24 +524,16 @@ class Gemma2FlashAttention2(Gemma2Attention):
         indices_k, cu_seqlens_k, max_seqlen_in_batch_k = _get_unpad_data(attention_mask)
         batch_size, kv_seq_len, num_key_value_heads, head_dim = key_layer.shape
 
-        key_layer = index_first_axis(
-            key_layer.reshape(batch_size * kv_seq_len, num_key_value_heads, head_dim), indices_k
-        )
-        value_layer = index_first_axis(
-            value_layer.reshape(batch_size * kv_seq_len, num_key_value_heads, head_dim), indices_k
-        )
+        key_layer = index_first_axis(key_layer.reshape(batch_size * kv_seq_len, num_key_value_heads, head_dim), indices_k)
+        value_layer = index_first_axis(value_layer.reshape(batch_size * kv_seq_len, num_key_value_heads, head_dim), indices_k)
         if query_length == kv_seq_len:
-            query_layer = index_first_axis(
-                query_layer.reshape(batch_size * kv_seq_len, self.num_heads, head_dim), indices_k
-            )
+            query_layer = index_first_axis(query_layer.reshape(batch_size * kv_seq_len, self.num_heads, head_dim), indices_k)
             cu_seqlens_q = cu_seqlens_k
             max_seqlen_in_batch_q = max_seqlen_in_batch_k
             indices_q = indices_k
         elif query_length == 1:
             max_seqlen_in_batch_q = 1
-            cu_seqlens_q = torch.arange(
-                batch_size + 1, dtype=torch.int32, device=query_layer.device
-            )  # There is a memcpy here, that is very bad.
+            cu_seqlens_q = torch.arange(batch_size + 1, dtype=torch.int32, device=query_layer.device)  # There is a memcpy here, that is very bad.
             indices_q = cu_seqlens_q[:-1]
             query_layer = query_layer.squeeze(1)
         else:
@@ -569,8 +552,7 @@ class Gemma2FlashAttention2(Gemma2Attention):
 
 
 class Gemma2SdpaAttention(Gemma2Attention):
-    """
-    Gemma2 attention module using torch.nn.functional.scaled_dot_product_attention. This module inherits from
+    """Gemma2 attention module using torch.nn.functional.scaled_dot_product_attention. This module inherits from
     `Gemma2Attention` as the weights of the module stays untouched. The only changes are on the forward pass to adapt to
     SDPA API.
     """
@@ -579,13 +561,13 @@ class Gemma2SdpaAttention(Gemma2Attention):
     def forward(
         self,
         hidden_states: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        past_key_value: Optional[Cache] = None,
+        attention_mask: torch.Tensor | None = None,
+        position_ids: torch.LongTensor | None = None,
+        past_key_value: Cache | None = None,
         output_attentions: bool = False,
         use_cache: bool = False,
-        cache_position: Optional[torch.LongTensor] = None,
-    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
+        cache_position: torch.LongTensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor | None, tuple[torch.Tensor] | None]:
         if output_attentions:
             # TODO: Improve this warning with e.g. `model.config.attn_implementation = "manual"` once this is implemented.
             logger.warning_once(
@@ -641,7 +623,7 @@ class Gemma2SdpaAttention(Gemma2Attention):
 
         # We dispatch to SDPA's Flash Attention or Efficient kernels via this `is_causal` if statement instead of an inline conditional assignment
         # in SDPA to support both torch.compile's dynamic shapes and full graph options. An inline conditional prevents dynamic shapes from compiling.
-        is_causal = True if causal_mask is None and q_len > 1 else False
+        is_causal = bool(causal_mask is None and q_len > 1)
 
         attn_output = torch.nn.functional.scaled_dot_product_attention(
             query_states,
@@ -670,7 +652,7 @@ GEMMA2_ATTENTION_CLASSES = {
 
 
 class Gemma2DecoderLayer(nn.Module):
-    def __init__(self, config: Gemma2Config, layer_idx: int):
+    def __init__(self, config: Gemma2Config, layer_idx: int) -> None:
         super().__init__()
         self.config = config
         self.hidden_size = config.hidden_size
@@ -689,21 +671,17 @@ class Gemma2DecoderLayer(nn.Module):
     def forward(
         self,
         hidden_states: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        past_key_value: Optional[Cache] = None,
-        output_attentions: Optional[bool] = False,
-        use_cache: Optional[bool] = False,
-        cache_position: Optional[torch.LongTensor] = None,
+        attention_mask: torch.Tensor | None = None,
+        position_ids: torch.LongTensor | None = None,
+        past_key_value: Cache | None = None,
+        output_attentions: bool | None = False,
+        use_cache: bool | None = False,
+        cache_position: torch.LongTensor | None = None,
         early_layers: bool = False,
-    ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
-        if (
-            self.config._attn_implementation != "flash_attention_2" and self.is_sliding and attention_mask is not None
-        ):  # efficient SDPA and no padding
+    ) -> tuple[torch.FloatTensor, tuple[torch.FloatTensor, torch.FloatTensor] | None]:
+        if self.config._attn_implementation != "flash_attention_2" and self.is_sliding and attention_mask is not None:  # efficient SDPA and no padding
             min_dtype = torch.finfo(hidden_states.dtype).min
-            sliding_window_mask = torch.tril(
-                torch.ones_like(attention_mask, dtype=torch.bool), diagonal=-self.sliding_window
-            )
+            sliding_window_mask = torch.tril(torch.ones_like(attention_mask, dtype=torch.bool), diagonal=-self.sliding_window)
             attention_mask = torch.where(sliding_window_mask, min_dtype, attention_mask)
             if attention_mask.shape[-1] <= 1:  # when decoding
                 attention_mask = attention_mask[:, :, :, -self.sliding_window :]
@@ -712,9 +690,8 @@ class Gemma2DecoderLayer(nn.Module):
 
         hidden_states = self.input_layernorm(hidden_states)
 
-
         # Self Attention
-        hidden_states, self_attn_weights, present_key_value, hidden_score_q, hidden_score_k, hidden_score_v, hidden_score_o  = self.self_attn(
+        hidden_states, self_attn_weights, present_key_value, hidden_score_q, hidden_score_k, hidden_score_v, hidden_score_o = self.self_attn(
             hidden_states=hidden_states,
             attention_mask=attention_mask,
             position_ids=position_ids,
@@ -722,7 +699,7 @@ class Gemma2DecoderLayer(nn.Module):
             output_attentions=output_attentions,
             use_cache=use_cache,
             cache_position=cache_position,
-            early_layers = early_layers,
+            early_layers=early_layers,
         )
         hidden_states = self.post_attention_layernorm(hidden_states)
         hidden_states = residual + hidden_states
@@ -778,7 +755,7 @@ class Gemma2PreTrainedModel(PreTrainedModel):
     _supports_static_cache = True
     _is_stateful = True
 
-    def _init_weights(self, module):
+    def _init_weights(self, module) -> None:
         std = self.config.initializer_range
         if isinstance(module, nn.Linear):
             module.weight.data.normal_(mean=0.0, std=std)
@@ -872,22 +849,21 @@ GEMMA2_INPUTS_DOCSTRING = r"""
     GEMMA2_START_DOCSTRING,
 )
 class Gemma2Model(Gemma2PreTrainedModel):
-    """
-    Transformer decoder consisting of *config.num_hidden_layers* layers. Each layer is a [`Gemma2DecoderLayer`]
+    """Transformer decoder consisting of *config.num_hidden_layers* layers. Each layer is a [`Gemma2DecoderLayer`].
 
     Args:
+    ----
         config: Gemma2Config
+
     """
 
-    def __init__(self, config: Gemma2Config):
+    def __init__(self, config: Gemma2Config) -> None:
         super().__init__(config)
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
 
         self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx)
-        self.layers = nn.ModuleList(
-            [Gemma2DecoderLayer(config, layer_idx) for layer_idx in range(config.num_hidden_layers)]
-        )
+        self.layers = nn.ModuleList([Gemma2DecoderLayer(config, layer_idx) for layer_idx in range(config.num_hidden_layers)])
         self.norm = Gemma2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.gradient_checkpointing = False
 
@@ -897,40 +873,35 @@ class Gemma2Model(Gemma2PreTrainedModel):
     def get_input_embeddings(self):
         return self.embed_tokens
 
-    def set_input_embeddings(self, value):
+    def set_input_embeddings(self, value) -> None:
         self.embed_tokens = value
 
     @add_start_docstrings_to_model_forward(GEMMA2_INPUTS_DOCSTRING)
     def forward(
         self,
         input_ids: torch.LongTensor = None,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        past_key_values: Optional[Union[Cache, List[torch.FloatTensor]]] = None,
-        inputs_embeds: Optional[torch.FloatTensor] = None,
-        use_cache: Optional[bool] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
-        cache_position: Optional[torch.LongTensor] = None,
-        early_exit_layers: Optional[List[int]] = None,
-    ) -> Union[Tuple, BaseModelOutputWithPast]:
+        attention_mask: torch.Tensor | None = None,
+        position_ids: torch.LongTensor | None = None,
+        past_key_values: Cache | list[torch.FloatTensor] | None = None,
+        inputs_embeds: torch.FloatTensor | None = None,
+        use_cache: bool | None = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
+        cache_position: torch.LongTensor | None = None,
+        early_exit_layers: list[int] | None = None,
+    ) -> tuple | BaseModelOutputWithPast:
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
-        output_hidden_states = (
-            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
-        )
+        output_hidden_states = output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         use_cache = use_cache if use_cache is not None else self.config.use_cache
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
         if (input_ids is None) ^ (inputs_embeds is not None):
-            raise ValueError(
-                "You cannot specify both input_ids and inputs_embeds at the same time, and must specify either one"
-            )
+            msg = "You cannot specify both input_ids and inputs_embeds at the same time, and must specify either one"
+            raise ValueError(msg)
 
         if self.gradient_checkpointing and self.training and use_cache:
-            logger.warning_once(
-                "`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`."
-            )
+            logger.warning_once("`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`.")
             use_cache = False
 
         if inputs_embeds is None:
@@ -942,9 +913,7 @@ class Gemma2Model(Gemma2PreTrainedModel):
         if position_ids is None:
             position_ids = cache_position.unsqueeze(0)
 
-        causal_mask = self._update_causal_mask(
-            attention_mask, inputs_embeds, cache_position, past_key_values, output_attentions
-        )
+        causal_mask = self._update_causal_mask(attention_mask, inputs_embeds, cache_position, past_key_values, output_attentions)
 
         # embed positions
         hidden_states = inputs_embeds
@@ -965,13 +934,9 @@ class Gemma2Model(Gemma2PreTrainedModel):
         hidden_scores_v = {}
         hidden_scores_o = {}
 
-
         for idx, decoder_layer in enumerate(self.layers):
-            if idx in early_exit_layers:
-                early_layers_flag = True
-            else:
-                early_layers_flag = False
-            
+            early_layers_flag = idx in early_exit_layers
+
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
 
@@ -1020,12 +985,20 @@ class Gemma2Model(Gemma2PreTrainedModel):
 
         if not return_dict:
             return tuple(v for v in [hidden_states, next_cache, all_hidden_states, all_self_attns] if v is not None)
-        return BaseModelOutputWithPast(
-            last_hidden_state=hidden_states,
-            past_key_values=next_cache,
-            hidden_states=all_hidden_states,
-            attentions=all_self_attns,
-        ), hidden_scores_fwd_up, hidden_scores_fwd_down, hidden_scores_q, hidden_scores_k, hidden_scores_v, hidden_scores_o
+        return (
+            BaseModelOutputWithPast(
+                last_hidden_state=hidden_states,
+                past_key_values=next_cache,
+                hidden_states=all_hidden_states,
+                attentions=all_self_attns,
+            ),
+            hidden_scores_fwd_up,
+            hidden_scores_fwd_down,
+            hidden_scores_q,
+            hidden_scores_k,
+            hidden_scores_v,
+            hidden_scores_o,
+        )
 
     def _update_causal_mask(
         self,
@@ -1051,12 +1024,11 @@ class Gemma2Model(Gemma2PreTrainedModel):
         if attention_mask is not None and attention_mask.dim() == 4:
             # in this case we assume that the mask comes already in inverted form and requires no inversion or slicing
             if attention_mask.max() != 0:
-                raise ValueError("Custom 4D attention mask should be passed in inverted form with max==0`")
+                msg = "Custom 4D attention mask should be passed in inverted form with max==0`"
+                raise ValueError(msg)
             causal_mask = attention_mask
         else:
-            causal_mask = torch.full(
-                (sequence_length, target_length), fill_value=min_dtype, dtype=dtype, device=device
-            )
+            causal_mask = torch.full((sequence_length, target_length), fill_value=min_dtype, dtype=dtype, device=device)
             if sequence_length != 1:
                 causal_mask = torch.triu(causal_mask, diagonal=1)
             causal_mask *= torch.arange(target_length, device=device) > cache_position.reshape(-1, 1)
@@ -1066,16 +1038,14 @@ class Gemma2Model(Gemma2PreTrainedModel):
                 mask_length = attention_mask.shape[-1]
                 padding_mask = causal_mask[:, :, :, :mask_length] + attention_mask[:, None, None, :]
                 padding_mask = padding_mask == 0
-                causal_mask[:, :, :, :mask_length] = causal_mask[:, :, :, :mask_length].masked_fill(
-                    padding_mask, min_dtype
-                )
+                causal_mask[:, :, :, :mask_length] = causal_mask[:, :, :, :mask_length].masked_fill(padding_mask, min_dtype)
         return causal_mask
 
 
 class Gemma2ForCausalLM(Gemma2PreTrainedModel):
     _tied_weights_keys = ["lm_head.weight"]
 
-    def __init__(self, config):
+    def __init__(self, config) -> None:
         super().__init__(config)
         self.model = Gemma2Model(config)
         self.vocab_size = config.vocab_size
@@ -1087,16 +1057,16 @@ class Gemma2ForCausalLM(Gemma2PreTrainedModel):
     def get_input_embeddings(self):
         return self.model.embed_tokens
 
-    def set_input_embeddings(self, value):
+    def set_input_embeddings(self, value) -> None:
         self.model.embed_tokens = value
 
     def get_output_embeddings(self):
         return self.lm_head
 
-    def set_output_embeddings(self, new_embeddings):
+    def set_output_embeddings(self, new_embeddings) -> None:
         self.lm_head = new_embeddings
 
-    def set_decoder(self, decoder):
+    def set_decoder(self, decoder) -> None:
         self.model = decoder
 
     def get_decoder(self):
@@ -1107,29 +1077,30 @@ class Gemma2ForCausalLM(Gemma2PreTrainedModel):
     def forward(
         self,
         input_ids: torch.LongTensor = None,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        past_key_values: Optional[Union[Cache, List[torch.FloatTensor]]] = None,
-        inputs_embeds: Optional[torch.FloatTensor] = None,
-        labels: Optional[torch.LongTensor] = None,
-        use_cache: Optional[bool] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
-        cache_position: Optional[torch.LongTensor] = None,
-        early_exit_layers: Optional[List[int]] = None,
-    ) -> Union[Tuple, CausalLMOutputWithPast]:
-        r"""
-        Args:
+        attention_mask: torch.Tensor | None = None,
+        position_ids: torch.LongTensor | None = None,
+        past_key_values: Cache | list[torch.FloatTensor] | None = None,
+        inputs_embeds: torch.FloatTensor | None = None,
+        labels: torch.LongTensor | None = None,
+        use_cache: bool | None = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
+        cache_position: torch.LongTensor | None = None,
+        early_exit_layers: list[int] | None = None,
+    ) -> tuple | CausalLMOutputWithPast:
+        r"""Args:
+        ----
             labels (`torch.LongTensor` of shape `(batch_size, sequence_length)`, *optional*):
                 Labels for computing the masked language modeling loss. Indices should either be in `[0, ...,
                 config.vocab_size]` or -100 (see `input_ids` docstring). Tokens with indices set to `-100` are ignored
                 (masked), the loss is only computed for the tokens with labels in `[0, ..., config.vocab_size]`.
 
         Returns:
+        -------
 
         Example:
-
+        -------
         ```python
         >>> from transformers import AutoTokenizer, GemmaForCausalLM
 
@@ -1143,16 +1114,16 @@ class Gemma2ForCausalLM(Gemma2PreTrainedModel):
         >>> generate_ids = model.generate(inputs.input_ids, max_length=30)
         >>> tokenizer.batch_decode(generate_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
         "What is your favorite condiment?"
-        ```"""
+        ```
+
+        """
         if self.training and self.config._attn_implementation != "eager":
             logger.warning_once(
                 "It is strongly recommended to train Gemma2 models with the `eager` attention implementation "
                 f"instead of `{self.config._attn_implementation}`. Use `eager` with `AutoModelForCausalLM.from_pretrained('<path-to-checkpoint>', attn_implementation='eager')`."
             )
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
-        output_hidden_states = (
-            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
-        )
+        output_hidden_states = output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
         # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
@@ -1167,25 +1138,23 @@ class Gemma2ForCausalLM(Gemma2PreTrainedModel):
             output_hidden_states=True,
             return_dict=return_dict,
             cache_position=cache_position,
-            early_exit_layers = early_exit_layers,
+            early_exit_layers=early_exit_layers,
         )
-
 
         if early_exit_layers is not None:
             summed_data_fwd = {key: sum(value) for key, value in hidden_scores_fwd_up.items()}
-            sorted_items_fwd = sorted(summed_data_fwd.items(), key=lambda item: item[1])
+            sorted(summed_data_fwd.items(), key=lambda item: item[1])
             summed_data_q = {key: sum(value) for key, value in hidden_score_q.items()}
-            sorted_items_q = sorted(summed_data_q.items(), key=lambda item: item[1])
+            sorted(summed_data_q.items(), key=lambda item: item[1])
             summed_data_k = {key: sum(value) for key, value in hidden_score_k.items()}
-            sorted_items_k = sorted(summed_data_k.items(), key=lambda item: item[1])
+            sorted(summed_data_k.items(), key=lambda item: item[1])
             summed_data_v = {key: sum(value) for key, value in hidden_score_v.items()}
-            sorted_items_v = sorted(summed_data_v.items(), key=lambda item: item[1])
+            sorted(summed_data_v.items(), key=lambda item: item[1])
             summed_data_o = {key: sum(value) for key, value in hidden_score_o.items()}
-            sorted_items_o = sorted(summed_data_o.items(), key=lambda item: item[1])
+            sorted(summed_data_o.items(), key=lambda item: item[1])
 
-            combined_data = {key: summed_data_fwd[key]*3 + summed_data_q[key]*2 + summed_data_v[key]*2 for key in summed_data_fwd}
+            combined_data = {key: summed_data_fwd[key] * 3 + summed_data_q[key] * 2 + summed_data_v[key] * 2 for key in summed_data_fwd}
             # combined_data = {key: summed_data_v[key] for key in summed_data_v}
-            
 
             logits_dict = {}
             activate_keys_fwd_up = {}
@@ -1194,7 +1163,7 @@ class Gemma2ForCausalLM(Gemma2PreTrainedModel):
             activate_keys_k = {}
             activate_keys_v = {}
             activate_keys_o = {}
-            for i, early_exit_layer in enumerate(early_exit_layers):
+            for _i, early_exit_layer in enumerate(early_exit_layers):
                 logits = self.lm_head(outputs.hidden_states[early_exit_layer])
                 logits_dict[early_exit_layer] = logits
                 top_number_attn = 1000
@@ -1233,8 +1202,8 @@ class Gemma2ForCausalLM(Gemma2PreTrainedModel):
                 # Enable model parallelism
                 shift_labels = shift_labels.to(shift_logits.device)
                 loss = loss_fct(shift_logits, shift_labels)
-                    # loss_dict[early_exit_layer] = loss
-                
+                # loss_dict[early_exit_layer] = loss
+
             final_outputs = CausalLMOutputWithPast(
                 loss=loss,
                 logits=logits,
@@ -1245,7 +1214,17 @@ class Gemma2ForCausalLM(Gemma2PreTrainedModel):
 
             # pdb.set_trace()
 
-            return logits_dict, final_outputs, activate_keys_fwd_up, activate_keys_fwd_down, activate_keys_q, activate_keys_k, activate_keys_v, activate_keys_o, no_use_layer_index
+            return (
+                logits_dict,
+                final_outputs,
+                activate_keys_fwd_up,
+                activate_keys_fwd_down,
+                activate_keys_q,
+                activate_keys_k,
+                activate_keys_v,
+                activate_keys_o,
+                no_use_layer_index,
+            )
 
         else:
             hidden_states = outputs[0]
@@ -1271,7 +1250,7 @@ class Gemma2ForCausalLM(Gemma2PreTrainedModel):
 
             if not return_dict:
                 output = (logits,) + outputs[1:]
-                return (loss,) + output if loss is not None else output
+                return (loss, *output) if loss is not None else output
 
             return CausalLMOutputWithPast(
                 loss=loss,
@@ -1295,11 +1274,7 @@ class Gemma2ForCausalLM(Gemma2PreTrainedModel):
         if past_key_values is not None:
             # Past key values are always initialized with a `Cache` object -> no need for if-else anymore
             past_length = cache_position[0] if cache_position is not None else torch.tensor(0, device=input_ids.device)
-            max_cache_length = (
-                torch.tensor(past_key_values.get_max_length(), device=input_ids.device)
-                if past_key_values.get_max_length() is not None
-                else None
-            )
+            max_cache_length = torch.tensor(past_key_values.get_max_length(), device=input_ids.device) if past_key_values.get_max_length() is not None else None
             cache_length = past_length if max_cache_length is None else torch.min(max_cache_length, past_length)
 
             # Keep only the unprocessed tokens:
@@ -1314,11 +1289,7 @@ class Gemma2ForCausalLM(Gemma2PreTrainedModel):
             # 3 - Otherwise (past_length >= input_ids.shape[1]), let's assume input_ids only has unprocessed tokens.
 
             # If we are about to go beyond the maximum cache length, we need to crop the input attention mask.
-            if (
-                max_cache_length is not None
-                and attention_mask is not None
-                and cache_length + input_ids.shape[1] > max_cache_length
-            ):
+            if max_cache_length is not None and attention_mask is not None and cache_length + input_ids.shape[1] > max_cache_length:
                 attention_mask = attention_mask[:, -max_cache_length:]
 
         position_ids = kwargs.get("position_ids", None)
@@ -1359,9 +1330,7 @@ class Gemma2ForCausalLM(Gemma2PreTrainedModel):
     def _reorder_cache(past_key_values, beam_idx):
         reordered_past = ()
         for layer_past in past_key_values:
-            reordered_past += (
-                tuple(past_state.index_select(0, beam_idx.to(past_state.device)) for past_state in layer_past),
-            )
+            reordered_past += (tuple(past_state.index_select(0, beam_idx.to(past_state.device)) for past_state in layer_past),)
         return reordered_past
 
 
@@ -1381,7 +1350,7 @@ class Gemma2ForCausalLM(Gemma2PreTrainedModel):
     GEMMA2_START_DOCSTRING,
 )
 class Gemma2ForSequenceClassification(Gemma2PreTrainedModel):
-    def __init__(self, config):
+    def __init__(self, config) -> None:
         super().__init__(config)
         self.num_labels = config.num_labels
         self.model = Gemma2Model(config)
@@ -1393,28 +1362,27 @@ class Gemma2ForSequenceClassification(Gemma2PreTrainedModel):
     def get_input_embeddings(self):
         return self.model.embed_tokens
 
-    def set_input_embeddings(self, value):
+    def set_input_embeddings(self, value) -> None:
         self.model.embed_tokens = value
 
     @add_start_docstrings_to_model_forward(GEMMA2_INPUTS_DOCSTRING)
     def forward(
         self,
         input_ids: torch.LongTensor = None,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        past_key_values: Optional[Union[Cache, List[torch.FloatTensor]]] = None,
-        inputs_embeds: Optional[torch.FloatTensor] = None,
-        labels: Optional[torch.LongTensor] = None,
-        use_cache: Optional[bool] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
-    ) -> Union[Tuple, SequenceClassifierOutputWithPast]:
-        r"""
-        labels (`torch.LongTensor` of shape `(batch_size,)`, *optional*):
-            Labels for computing the sequence classification/regression loss. Indices should be in `[0, ...,
-            config.num_labels - 1]`. If `config.num_labels == 1` a regression loss is computed (Mean-Square loss), If
-            `config.num_labels > 1` a classification loss is computed (Cross-Entropy).
+        attention_mask: torch.Tensor | None = None,
+        position_ids: torch.LongTensor | None = None,
+        past_key_values: Cache | list[torch.FloatTensor] | None = None,
+        inputs_embeds: torch.FloatTensor | None = None,
+        labels: torch.LongTensor | None = None,
+        use_cache: bool | None = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
+    ) -> tuple | SequenceClassifierOutputWithPast:
+        r"""Labels (`torch.LongTensor` of shape `(batch_size,)`, *optional*):
+        Labels for computing the sequence classification/regression loss. Indices should be in `[0, ...,
+        config.num_labels - 1]`. If `config.num_labels == 1` a regression loss is computed (Mean-Square loss), If
+        `config.num_labels > 1` a classification loss is computed (Cross-Entropy).
         """
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
@@ -1432,23 +1400,20 @@ class Gemma2ForSequenceClassification(Gemma2PreTrainedModel):
         hidden_states = transformer_outputs[0]
         logits = self.score(hidden_states)
 
-        if input_ids is not None:
-            batch_size = input_ids.shape[0]
-        else:
-            batch_size = inputs_embeds.shape[0]
+        batch_size = input_ids.shape[0] if input_ids is not None else inputs_embeds.shape[0]
 
         if self.config.pad_token_id is None and batch_size != 1:
-            raise ValueError("Cannot handle batch sizes > 1 if no padding token is defined.")
+            msg = "Cannot handle batch sizes > 1 if no padding token is defined."
+            raise ValueError(msg)
         if self.config.pad_token_id is None:
             sequence_lengths = -1
+        elif input_ids is not None:
+            # if no pad token found, use modulo instead of reverse indexing for ONNX compatibility
+            sequence_lengths = torch.eq(input_ids, self.config.pad_token_id).int().argmax(-1) - 1
+            sequence_lengths = sequence_lengths % input_ids.shape[-1]
+            sequence_lengths = sequence_lengths.to(logits.device)
         else:
-            if input_ids is not None:
-                # if no pad token found, use modulo instead of reverse indexing for ONNX compatibility
-                sequence_lengths = torch.eq(input_ids, self.config.pad_token_id).int().argmax(-1) - 1
-                sequence_lengths = sequence_lengths % input_ids.shape[-1]
-                sequence_lengths = sequence_lengths.to(logits.device)
-            else:
-                sequence_lengths = -1
+            sequence_lengths = -1
 
         pooled_logits = logits[torch.arange(batch_size, device=logits.device), sequence_lengths]
 
@@ -1458,17 +1423,14 @@ class Gemma2ForSequenceClassification(Gemma2PreTrainedModel):
             if self.config.problem_type is None:
                 if self.num_labels == 1:
                     self.config.problem_type = "regression"
-                elif self.num_labels > 1 and (labels.dtype == torch.long or labels.dtype == torch.int):
+                elif self.num_labels > 1 and (labels.dtype in (torch.long, torch.int)):
                     self.config.problem_type = "single_label_classification"
                 else:
                     self.config.problem_type = "multi_label_classification"
 
             if self.config.problem_type == "regression":
                 loss_fct = MSELoss()
-                if self.num_labels == 1:
-                    loss = loss_fct(pooled_logits.squeeze(), labels.squeeze())
-                else:
-                    loss = loss_fct(pooled_logits, labels)
+                loss = loss_fct(pooled_logits.squeeze(), labels.squeeze()) if self.num_labels == 1 else loss_fct(pooled_logits, labels)
             elif self.config.problem_type == "single_label_classification":
                 loss_fct = CrossEntropyLoss()
                 loss = loss_fct(pooled_logits.view(-1, self.num_labels), labels.view(-1))
@@ -1477,7 +1439,7 @@ class Gemma2ForSequenceClassification(Gemma2PreTrainedModel):
                 loss = loss_fct(pooled_logits, labels)
         if not return_dict:
             output = (pooled_logits,) + transformer_outputs[1:]
-            return ((loss,) + output) if loss is not None else output
+            return ((loss, *output)) if loss is not None else output
 
         return SequenceClassifierOutputWithPast(
             loss=loss,
@@ -1496,7 +1458,7 @@ class Gemma2ForSequenceClassification(Gemma2PreTrainedModel):
     GEMMA2_START_DOCSTRING,
 )
 class Gemma2ForTokenClassification(Gemma2PreTrainedModel):
-    def __init__(self, config):
+    def __init__(self, config) -> None:
         super().__init__(config)
         self.num_labels = config.num_labels
         self.model = Gemma2Model(config)
@@ -1515,28 +1477,27 @@ class Gemma2ForTokenClassification(Gemma2PreTrainedModel):
     def get_input_embeddings(self):
         return self.model.embed_tokens
 
-    def set_input_embeddings(self, value):
+    def set_input_embeddings(self, value) -> None:
         self.model.embed_tokens = value
 
     @add_start_docstrings_to_model_forward(GEMMA2_INPUTS_DOCSTRING)
     def forward(
         self,
-        input_ids: Optional[torch.LongTensor] = None,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        past_key_values: Optional[List[torch.FloatTensor]] = None,
-        inputs_embeds: Optional[torch.FloatTensor] = None,
-        labels: Optional[torch.LongTensor] = None,
-        use_cache: Optional[bool] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
-    ) -> Union[Tuple, TokenClassifierOutput]:
-        r"""
-        labels (`torch.LongTensor` of shape `(batch_size,)`, *optional*):
-            Labels for computing the sequence classification/regression loss. Indices should be in `[0, ...,
-            config.num_labels - 1]`. If `config.num_labels == 1` a regression loss is computed (Mean-Square loss), If
-            `config.num_labels > 1` a classification loss is computed (Cross-Entropy).
+        input_ids: torch.LongTensor | None = None,
+        attention_mask: torch.Tensor | None = None,
+        position_ids: torch.LongTensor | None = None,
+        past_key_values: list[torch.FloatTensor] | None = None,
+        inputs_embeds: torch.FloatTensor | None = None,
+        labels: torch.LongTensor | None = None,
+        use_cache: bool | None = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
+    ) -> tuple | TokenClassifierOutput:
+        r"""Labels (`torch.LongTensor` of shape `(batch_size,)`, *optional*):
+        Labels for computing the sequence classification/regression loss. Indices should be in `[0, ...,
+        config.num_labels - 1]`. If `config.num_labels == 1` a regression loss is computed (Mean-Square loss), If
+        `config.num_labels > 1` a classification loss is computed (Cross-Entropy).
         """
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
@@ -1562,7 +1523,7 @@ class Gemma2ForTokenClassification(Gemma2PreTrainedModel):
 
         if not return_dict:
             output = (logits,) + outputs[2:]
-            return ((loss,) + output) if loss is not None else output
+            return ((loss, *output)) if loss is not None else output
 
         return TokenClassifierOutput(
             loss=loss,

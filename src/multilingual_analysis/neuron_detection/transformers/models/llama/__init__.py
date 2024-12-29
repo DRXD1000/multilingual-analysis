@@ -22,14 +22,13 @@ from ...utils import (
     is_torch_available,
 )
 
-
 _import_structure = {
     "configuration_llama": ["LlamaConfig"],
 }
 
 try:
     if not is_sentencepiece_available():
-        raise OptionalDependencyNotAvailable()
+        raise OptionalDependencyNotAvailable
 except OptionalDependencyNotAvailable:
     pass
 else:
@@ -37,7 +36,7 @@ else:
 
 try:
     if not is_tokenizers_available():
-        raise OptionalDependencyNotAvailable()
+        raise OptionalDependencyNotAvailable
 except OptionalDependencyNotAvailable:
     pass
 else:
@@ -45,7 +44,7 @@ else:
 
 try:
     if not is_torch_available():
-        raise OptionalDependencyNotAvailable()
+        raise OptionalDependencyNotAvailable
 except OptionalDependencyNotAvailable:
     pass
 else:
@@ -60,7 +59,7 @@ else:
 
 try:
     if not is_flax_available():
-        raise OptionalDependencyNotAvailable()
+        raise OptionalDependencyNotAvailable
 except OptionalDependencyNotAvailable:
     pass
 else:
@@ -72,7 +71,7 @@ if TYPE_CHECKING:
 
     try:
         if not is_sentencepiece_available():
-            raise OptionalDependencyNotAvailable()
+            raise OptionalDependencyNotAvailable
     except OptionalDependencyNotAvailable:
         pass
     else:
@@ -80,7 +79,7 @@ if TYPE_CHECKING:
 
     try:
         if not is_tokenizers_available():
-            raise OptionalDependencyNotAvailable()
+            raise OptionalDependencyNotAvailable
     except OptionalDependencyNotAvailable:
         pass
     else:
@@ -88,7 +87,7 @@ if TYPE_CHECKING:
 
     try:
         if not is_torch_available():
-            raise OptionalDependencyNotAvailable()
+            raise OptionalDependencyNotAvailable
     except OptionalDependencyNotAvailable:
         pass
     else:
@@ -103,7 +102,7 @@ if TYPE_CHECKING:
 
     try:
         if not is_flax_available():
-            raise OptionalDependencyNotAvailable()
+            raise OptionalDependencyNotAvailable
     except OptionalDependencyNotAvailable:
         pass
     else:

@@ -1,4 +1,3 @@
-# coding=utf-8
 # Copyright 2023 Meta AI, EleutherAI and the HuggingFace Inc. team. All rights reserved.
 #
 # This code is based on EleutherAI's GPT-NeoX library and the GPT-NeoX
@@ -20,7 +19,6 @@
 """Flax LLaMA model."""
 
 from functools import partial
-from typing import Optional, Tuple
 
 import flax.linen as nn
 import jax
@@ -36,7 +34,6 @@ from ...modeling_flax_outputs import FlaxBaseModelOutput, FlaxCausalLMOutput
 from ...modeling_flax_utils import ACT2FN, FlaxPreTrainedModel, append_call_sample_docstring
 from ...utils import add_start_docstrings, add_start_docstrings_to_model_forward, logging
 from .configuration_llama import LlamaConfig
-
 
 logger = logging.get_logger(__name__)
 
@@ -139,10 +136,7 @@ def create_sinusoidal_positions(num_pos, dim):
 
 def rotate_half(tensor):
     """Rotates half the hidden dims of the input."""
-    rotate_half_tensor = jnp.concatenate(
-        (-tensor[..., tensor.shape[-1] // 2 :], tensor[..., : tensor.shape[-1] // 2]), axis=-1
-    )
-    return rotate_half_tensor
+    return jnp.concatenate((-tensor[..., tensor.shape[-1] // 2 :], tensor[..., : tensor.shape[-1] // 2]), axis=-1)
 
 
 def apply_rotary_pos_emb(tensor, sin_pos, cos_pos):
@@ -153,7 +147,7 @@ class FlaxLlamaRMSNorm(nn.Module):
     config: LlamaConfig
     dtype: jnp.dtype = jnp.float32
 
-    def setup(self):
+    def setup(self) -> None:
         self.epsilon = self.config.rms_norm_eps
         self.weight = self.param("weight", lambda _, shape: jnp.ones(shape), self.config.hidden_size)
 
@@ -171,7 +165,7 @@ class FlaxLlamaRotaryEmbedding(nn.Module):
     config: LlamaConfig
     dtype: jnp.dtype = jnp.float32
 
-    def setup(self):
+    def setup(self) -> None:
         head_dim = self.config.hidden_size // self.config.num_attention_heads
         self.sincos = create_sinusoidal_positions(self.config.max_position_embeddings, head_dim)
 
@@ -194,7 +188,7 @@ class FlaxLlamaAttention(nn.Module):
     causal: bool = True
     is_cross_attention: bool = False
 
-    def setup(self):
+    def setup(self) -> None:
         config = self.config
         self.embed_dim = config.hidden_size
         self.num_heads = config.num_attention_heads
@@ -215,10 +209,8 @@ class FlaxLlamaAttention(nn.Module):
         self.v_proj = dense(self.num_key_value_heads * self.head_dim)
         self.o_proj = dense(self.embed_dim)
         if (self.head_dim * self.num_heads) != self.embed_dim:
-            raise ValueError(
-                f"hidden_size must be divisible by num_heads (got `hidden_size`: {self.embed_dim}"
-                f" and `num_heads`: {self.num_heads})."
-            )
+            msg = f"hidden_size must be divisible by num_heads (got `hidden_size`: {self.embed_dim}" f" and `num_heads`: {self.num_heads})."
+            raise ValueError(msg)
 
         self.causal_mask = make_causal_mask(jnp.ones((1, config.max_position_embeddings), dtype="bool"), dtype="bool")
         self.rotary_emb = FlaxLlamaRotaryEmbedding(config, dtype=self.dtype)
@@ -232,10 +224,9 @@ class FlaxLlamaAttention(nn.Module):
     @nn.compact
     # Copied from transformers.models.gpt_neo.modeling_flax_gpt_neo.FlaxGPTNeoSelfAttention._concatenate_to_cache
     def _concatenate_to_cache(self, key, value, query, attention_mask):
-        """
-        This function takes projected key, value states from a single input token and concatenates the states to cached
+        """This function takes projected key, value states from a single input token and concatenates the states to cached
         states from previous steps. This function is slighly adapted from the official Flax repository:
-        https://github.com/google/flax/blob/491ce18759622506588784b4fca0e4bf05f8c8cd/flax/linen/attention.py#L252
+        https://github.com/google/flax/blob/491ce18759622506588784b4fca0e4bf05f8c8cd/flax/linen/attention.py#L252.
         """
         # detect if we're initializing by absence of existing cache data.
         is_initialized = self.has_variable("cache", "cached_key")
@@ -257,7 +248,7 @@ class FlaxLlamaAttention(nn.Module):
             # causal mask for cached decoder self-attention: our single query position should only attend to those key positions that have already been generated and cached, not the remaining zero elements.
             pad_mask = jnp.broadcast_to(
                 jnp.arange(max_length) < cur_index + num_updated_cache_vectors,
-                tuple(batch_dims) + (1, num_updated_cache_vectors, max_length),
+                (*tuple(batch_dims), 1, num_updated_cache_vectors, max_length),
             )
             attention_mask = combine_masks(pad_mask, attention_mask)
         return key, value, attention_mask
@@ -286,9 +277,7 @@ class FlaxLlamaAttention(nn.Module):
         if self.has_variable("cache", "cached_key"):
             mask_shift = self.variables["cache"]["cache_index"]
             max_decoder_length = self.variables["cache"]["cached_key"].shape[1]
-            causal_mask = lax.dynamic_slice(
-                self.causal_mask, (0, 0, mask_shift, 0), (1, 1, query_length, max_decoder_length)
-            )
+            causal_mask = lax.dynamic_slice(self.causal_mask, (0, 0, mask_shift, 0), (1, 1, query_length, max_decoder_length))
         else:
             causal_mask = self.causal_mask[:, :, :query_length, :key_length]
 
@@ -336,15 +325,14 @@ class FlaxLlamaAttention(nn.Module):
         attn_output = self._merge_heads(attn_output)
         attn_output = self.o_proj(attn_output)
 
-        outputs = (attn_output, attn_weights) if output_attentions else (attn_output,)
-        return outputs
+        return (attn_output, attn_weights) if output_attentions else (attn_output,)
 
 
 class FlaxLlamaMLP(nn.Module):
     config: LlamaConfig
     dtype: jnp.dtype = jnp.float32
 
-    def setup(self):
+    def setup(self) -> None:
         embed_dim = self.config.hidden_size
         inner_dim = self.config.intermediate_size if self.config.intermediate_size is not None else 4 * embed_dim
 
@@ -359,15 +347,14 @@ class FlaxLlamaMLP(nn.Module):
         up_proj_states = self.up_proj(hidden_states)
         gate_states = self.act(self.gate_proj(hidden_states))
 
-        hidden_states = self.down_proj(up_proj_states * gate_states)
-        return hidden_states
+        return self.down_proj(up_proj_states * gate_states)
 
 
 class FlaxLlamaDecoderLayer(nn.Module):
     config: LlamaConfig
     dtype: jnp.dtype = jnp.float32
 
-    def setup(self):
+    def setup(self) -> None:
         self.input_layernorm = FlaxLlamaRMSNorm(self.config, dtype=self.dtype)
         self.self_attn = FlaxLlamaAttention(self.config, dtype=self.dtype)
         self.post_attention_layernorm = FlaxLlamaRMSNorm(self.config, dtype=self.dtype)
@@ -407,8 +394,7 @@ class FlaxLlamaDecoderLayer(nn.Module):
 
 # Copied from transformers.models.gpt_neo.modeling_flax_gpt_neo.FlaxGPTNeoPreTrainedModel with GPTNeo->Llama, GPT_NEO->LLAMA, transformer->model
 class FlaxLlamaPreTrainedModel(FlaxPreTrainedModel):
-    """
-    An abstract class to handle weights initialization and a simple interface for downloading and loading pretrained
+    """An abstract class to handle weights initialization and a simple interface for downloading and loading pretrained
     models.
     """
 
@@ -419,16 +405,16 @@ class FlaxLlamaPreTrainedModel(FlaxPreTrainedModel):
     def __init__(
         self,
         config: LlamaConfig,
-        input_shape: Tuple = (1, 1),
+        input_shape: tuple = (1, 1),
         seed: int = 0,
         dtype: jnp.dtype = jnp.float32,
         _do_init: bool = True,
         **kwargs,
-    ):
+    ) -> None:
         module = self.module_class(config=config, dtype=dtype, **kwargs)
         super().__init__(config, module, input_shape=input_shape, seed=seed, dtype=dtype, _do_init=_do_init)
 
-    def init_weights(self, rng: jax.random.PRNGKey, input_shape: Tuple, params: FrozenDict = None) -> FrozenDict:
+    def init_weights(self, rng: jax.random.PRNGKey, input_shape: tuple, params: FrozenDict = None) -> FrozenDict:
         # init input tensors
         input_ids = jnp.zeros(input_shape, dtype="i4")
         attention_mask = jnp.ones_like(input_ids)
@@ -449,22 +435,21 @@ class FlaxLlamaPreTrainedModel(FlaxPreTrainedModel):
             return random_params
 
     def init_cache(self, batch_size, max_length):
-        r"""
-        Args:
+        r"""Args:
+        ----
             batch_size (`int`):
                 batch_size used for fast auto-regressive decoding. Defines the batch size of the initialized cache.
             max_length (`int`):
                 maximum possible length for auto-regressive decoding. Defines the sequence length of the initialized
                 cache.
+
         """
         # init input variables to retrieve cache
         input_ids = jnp.ones((batch_size, max_length))
         attention_mask = jnp.ones_like(input_ids)
         position_ids = jnp.broadcast_to(jnp.arange(jnp.atleast_2d(input_ids).shape[-1]), input_ids.shape)
 
-        init_variables = self.module.init(
-            jax.random.PRNGKey(0), input_ids, attention_mask, position_ids, return_dict=False, init_cache=True
-        )
+        init_variables = self.module.init(jax.random.PRNGKey(0), input_ids, attention_mask, position_ids, return_dict=False, init_cache=True)
         return unfreeze(init_variables["cache"])
 
     @add_start_docstrings_to_model_forward(LLAMA_INPUTS_DOCSTRING)
@@ -473,25 +458,24 @@ class FlaxLlamaPreTrainedModel(FlaxPreTrainedModel):
         input_ids,
         attention_mask=None,
         position_ids=None,
-        params: dict = None,
-        past_key_values: dict = None,
+        params: dict | None = None,
+        past_key_values: dict | None = None,
         dropout_rng: jax.random.PRNGKey = None,
         train: bool = False,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
     ):
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
-        output_hidden_states = (
-            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
-        )
+        output_hidden_states = output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         return_dict = return_dict if return_dict is not None else self.config.return_dict
 
         batch_size, sequence_length = input_ids.shape
 
         if position_ids is None:
             if past_key_values is not None:
-                raise ValueError("Make sure to provide `position_ids` when passing `past_key_values`.")
+                msg = "Make sure to provide `position_ids` when passing `past_key_values`."
+                raise ValueError(msg)
 
             position_ids = jnp.broadcast_to(jnp.arange(sequence_length)[None, :], (batch_size, sequence_length))
 
@@ -542,11 +526,8 @@ class FlaxLlamaLayerCollection(nn.Module):
     config: LlamaConfig
     dtype: jnp.dtype = jnp.float32
 
-    def setup(self):
-        self.blocks = [
-            FlaxLlamaDecoderLayer(self.config, dtype=self.dtype, name=str(i))
-            for i in range(self.config.num_hidden_layers)
-        ]
+    def setup(self) -> None:
+        self.blocks = [FlaxLlamaDecoderLayer(self.config, dtype=self.dtype, name=str(i)) for i in range(self.config.num_hidden_layers)]
 
     def __call__(
         self,
@@ -579,16 +560,14 @@ class FlaxLlamaLayerCollection(nn.Module):
                 all_attentions += (layer_outputs[1],)
 
         # this contains possible `None` values - `FlaxLlamaModule` will filter them out
-        outputs = (hidden_states, all_hidden_states, all_attentions)
-
-        return outputs
+        return (hidden_states, all_hidden_states, all_attentions)
 
 
 class FlaxLlamaModule(nn.Module):
     config: LlamaConfig
     dtype: jnp.dtype = jnp.float32
 
-    def setup(self):
+    def setup(self) -> None:
         self.hidden_size = self.config.hidden_size
         embedding_init = jax.nn.initializers.normal(stddev=self.config.initializer_range)
         self.embed_tokens = nn.Embed(
@@ -664,7 +643,7 @@ class FlaxLlamaForCausalLMModule(nn.Module):
     config: LlamaConfig
     dtype: jnp.dtype = jnp.float32
 
-    def setup(self):
+    def setup(self) -> None:
         self.model = FlaxLlamaModule(self.config, dtype=self.dtype)
         self.lm_head = nn.Dense(
             self.config.vocab_size,
@@ -714,7 +693,7 @@ class FlaxLlamaForCausalLMModule(nn.Module):
 class FlaxLlamaForCausalLM(FlaxLlamaPreTrainedModel):
     module_class = FlaxLlamaForCausalLMModule
 
-    def prepare_inputs_for_generation(self, input_ids, max_length, attention_mask: Optional[jax.Array] = None):
+    def prepare_inputs_for_generation(self, input_ids, max_length, attention_mask: jax.Array | None = None):
         # initializing the cache
         batch_size, seq_length = input_ids.shape
 

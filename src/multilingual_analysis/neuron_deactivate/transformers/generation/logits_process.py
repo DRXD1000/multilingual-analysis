@@ -1,4 +1,3 @@
-# coding=utf-8
 # Copyright 2020 The HuggingFace Inc. team
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,14 +15,13 @@
 import inspect
 import math
 import warnings
-from typing import Callable, Dict, Iterable, List, Optional, Tuple, Union
+from collections.abc import Callable, Iterable
 
 import numpy as np
 import torch
 
 from ..utils import add_start_docstrings
 from ..utils.logging import get_logger
-
 
 logger = get_logger(__name__)
 
@@ -47,9 +45,8 @@ class LogitsProcessor:
 
     @add_start_docstrings(LOGITS_PROCESSOR_INPUTS_DOCSTRING)
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
-        raise NotImplementedError(
-            f"{self.__class__} is an abstract class. Only classes inheriting this class can be called."
-        )
+        msg = f"{self.__class__} is an abstract class. Only classes inheriting this class can be called."
+        raise NotImplementedError(msg)
 
 
 class LogitsWarper:
@@ -57,21 +54,19 @@ class LogitsWarper:
 
     @add_start_docstrings(LOGITS_PROCESSOR_INPUTS_DOCSTRING)
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
-        raise NotImplementedError(
-            f"{self.__class__} is an abstract class. Only classes inheriting this class can be called."
-        )
+        msg = f"{self.__class__} is an abstract class. Only classes inheriting this class can be called."
+        raise NotImplementedError(msg)
 
 
 class LogitsProcessorList(list):
-    """
-    This class can be used to create a list of [`LogitsProcessor`] or [`LogitsWarper`] to subsequently process a
+    """This class can be used to create a list of [`LogitsProcessor`] or [`LogitsWarper`] to subsequently process a
     `scores` input tensor. This class inherits from list and adds a specific *__call__* method to apply each
     [`LogitsProcessor`] or [`LogitsWarper`] to the inputs.
     """
 
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor, **kwargs) -> torch.FloatTensor:
-        r"""
-        Args:
+        r"""Args:
+        ----
             input_ids (`torch.LongTensor` of shape `(batch_size, sequence_length)`):
                 Indices of input sequence tokens in the vocabulary. [What are input IDs?](../glossary#input-ids)
             scores (`torch.FloatTensor` of shape `(batch_size, config.vocab_size)`):
@@ -81,6 +76,7 @@ class LogitsProcessorList(list):
                 Additional kwargs that are specific to a logits processor.
 
         Return:
+        ------
             `torch.FloatTensor` of shape `(batch_size, config.vocab_size)`:
                 The processed prediction scores.
 
@@ -89,10 +85,8 @@ class LogitsProcessorList(list):
             function_args = inspect.signature(processor.__call__).parameters
             if len(function_args) > 2:
                 if not all(arg in kwargs for arg in list(function_args.keys())[2:]):
-                    raise ValueError(
-                        f"Make sure that all the required parameters: {list(function_args.keys())} for "
-                        f"{processor.__class__} are passed to the logits processor."
-                    )
+                    msg = f"Make sure that all the required parameters: {list(function_args.keys())} for " f"{processor.__class__} are passed to the logits processor."
+                    raise ValueError(msg)
                 scores = processor(input_ids, scores, **kwargs)
             else:
                 scores = processor(input_ids, scores)
@@ -101,11 +95,11 @@ class LogitsProcessorList(list):
 
 
 class MinLengthLogitsProcessor(LogitsProcessor):
-    r"""
-    [`LogitsProcessor`] enforcing a min-length by setting EOS probability to 0. Note that, for decoder-only models
+    r"""[`LogitsProcessor`] enforcing a min-length by setting EOS probability to 0. Note that, for decoder-only models
     like most LLMs, the length includes the prompt.
 
     Args:
+    ----
         min_length (`int`):
             The minimum length below which the score of `eos_token_id` is set to `-float("Inf")`.
         eos_token_id (`Union[int, List[int], torch.Tensor]`):
@@ -114,7 +108,7 @@ class MinLengthLogitsProcessor(LogitsProcessor):
             The device to allocate the tensors.
 
     Examples:
-
+    --------
     ```python
     >>> from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -137,11 +131,13 @@ class MinLengthLogitsProcessor(LogitsProcessor):
     >>> print(tokenizer.batch_decode(gen_out, skip_special_tokens=True)[0])
     A number: one thousand, nine hundred and ninety-four
     ```
+
     """
 
-    def __init__(self, min_length: int, eos_token_id: Union[int, List[int], torch.Tensor], device: str = "cpu"):
+    def __init__(self, min_length: int, eos_token_id: int | list[int] | torch.Tensor, device: str = "cpu") -> None:
         if not isinstance(min_length, int) or min_length < 0:
-            raise ValueError(f"`min_length` has to be a non-negative integer, but is {min_length}")
+            msg = f"`min_length` has to be a non-negative integer, but is {min_length}"
+            raise ValueError(msg)
 
         if not isinstance(eos_token_id, torch.Tensor):
             if isinstance(eos_token_id, int):
@@ -162,11 +158,11 @@ class MinLengthLogitsProcessor(LogitsProcessor):
 
 
 class MinNewTokensLengthLogitsProcessor(LogitsProcessor):
-    r"""
-    [`LogitsProcessor`] enforcing a min-length of new tokens by setting EOS (End-Of-Sequence) token probability to 0.
+    r"""[`LogitsProcessor`] enforcing a min-length of new tokens by setting EOS (End-Of-Sequence) token probability to 0.
     Contrarily to [`MinLengthLogitsProcessor`], this processor ignores the prompt.
 
     Args:
+    ----
         prompt_length_to_skip (`int`):
             The input tokens length. Not a valid argument when used with `generate` as it will automatically assign the
             input length.
@@ -178,7 +174,7 @@ class MinNewTokensLengthLogitsProcessor(LogitsProcessor):
             The device to allocate the tensors.
 
     Examples:
-
+    --------
     ```python
     >>> from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -196,21 +192,23 @@ class MinNewTokensLengthLogitsProcessor(LogitsProcessor):
     >>> print(tokenizer.batch_decode(gen_out, skip_special_tokens=True)[0])
     A number: one thousand
     ```
+
     """
 
     def __init__(
         self,
         prompt_length_to_skip: int,
         min_new_tokens: int,
-        eos_token_id: Union[int, List[int], torch.Tensor],
+        eos_token_id: int | list[int] | torch.Tensor,
         device: str = "cpu",
-    ):
+    ) -> None:
         for arg_name, arg_value in [
             ("prompt_length_to_skip", prompt_length_to_skip),
             ("min_new_tokens", min_new_tokens),
         ]:
             if not isinstance(arg_value, int) or arg_value < 0:
-                raise ValueError(f"`{arg_name}` has to be a positive integer, but is {arg_value}")
+                msg = f"`{arg_name}` has to be a positive integer, but is {arg_value}"
+                raise ValueError(msg)
 
         if not isinstance(eos_token_id, torch.Tensor):
             if isinstance(eos_token_id, int):
@@ -234,8 +232,7 @@ class MinNewTokensLengthLogitsProcessor(LogitsProcessor):
 
 
 class TemperatureLogitsWarper(LogitsWarper):
-    r"""
-    [`LogitsWarper`] for temperature (exponential scaling output probability distribution), which effectively means
+    r"""[`LogitsWarper`] for temperature (exponential scaling output probability distribution), which effectively means
     that it can control the randomness of the predicted tokens. Often used together with [`TopPLogitsWarper`] and
     [`TopKLogitsWarper`].
 
@@ -247,13 +244,14 @@ class TemperatureLogitsWarper(LogitsWarper):
     </Tip>
 
     Args:
+    ----
         temperature (`float`):
             Strictly positive float value used to modulate the logits distribution. A value smaller than `1` decreases
             randomness (and vice versa), with `0` being equivalent to shifting all probability mass to the most likely
             token.
 
     Examples:
-
+    --------
     ```python
     >>> import torch
     >>> from transformers import AutoTokenizer, AutoModelForCausalLM, set_seed
@@ -279,14 +277,12 @@ class TemperatureLogitsWarper(LogitsWarper):
     ['Hugging Face Company is a company that has been around for over 20 years',
     'Hugging Face Company is a company that has been around for over 20 years']
     ```
+
     """
 
-    def __init__(self, temperature: float):
+    def __init__(self, temperature: float) -> None:
         if not isinstance(temperature, float) or not (temperature > 0):
-            except_msg = (
-                f"`temperature` (={temperature}) has to be a strictly positive float, otherwise your next token "
-                "scores will be invalid."
-            )
+            except_msg = f"`temperature` (={temperature}) has to be a strictly positive float, otherwise your next token " "scores will be invalid."
             if isinstance(temperature, float) and temperature == 0.0:
                 except_msg += " If you're looking for greedy decoding strategies, set `do_sample=False`."
             raise ValueError(except_msg)
@@ -295,13 +291,11 @@ class TemperatureLogitsWarper(LogitsWarper):
 
     @add_start_docstrings(LOGITS_PROCESSOR_INPUTS_DOCSTRING)
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
-        scores_processed = scores / self.temperature
-        return scores_processed
+        return scores / self.temperature
 
 
 class RepetitionPenaltyLogitsProcessor(LogitsProcessor):
-    r"""
-    [`LogitsProcessor`] that prevents the repetition of previous tokens through a penalty. This penalty is applied at
+    r"""[`LogitsProcessor`] that prevents the repetition of previous tokens through a penalty. This penalty is applied at
     most once per token. Note that, for decoder-only models like most LLMs, the considered tokens include the prompt.
 
     In the original [paper](https://arxiv.org/pdf/1909.05858.pdf), the authors suggest the use of a penalty of around
@@ -310,12 +304,13 @@ class RepetitionPenaltyLogitsProcessor(LogitsProcessor):
     repetition, use `penalty` values between 0.0 and 1.0, where a lower value rewards more strongly.
 
     Args:
+    ----
         penalty (`float`):
             The parameter for repetition penalty. 1.0 means no penalty. Above 1.0 penalizes previously generated
             tokens. Between 0.0 and 1.0 rewards previously generated tokens.
 
     Examples:
-
+    --------
     ```py
     >>> from transformers import AutoTokenizer, AutoModelForCausalLM
 
@@ -334,11 +329,13 @@ class RepetitionPenaltyLogitsProcessor(LogitsProcessor):
     >>> print(tokenizer.batch_decode(penalized_ids, skip_special_tokens=True)[0])
     I'm not going to be able to do that. I'll just have to go out and play
     ```
+
     """
 
-    def __init__(self, penalty: float):
+    def __init__(self, penalty: float) -> None:
         if not isinstance(penalty, float) or not (penalty > 0):
-            raise ValueError(f"`penalty` has to be a strictly positive float, but is {penalty}")
+            msg = f"`penalty` has to be a strictly positive float, but is {penalty}"
+            raise ValueError(msg)
 
         self.penalty = penalty
 
@@ -349,13 +346,11 @@ class RepetitionPenaltyLogitsProcessor(LogitsProcessor):
         # if score < 0 then repetition penalty has to be multiplied to reduce the token probabilities
         score = torch.where(score < 0, score * self.penalty, score / self.penalty)
 
-        scores_processed = scores.scatter(1, input_ids, score)
-        return scores_processed
+        return scores.scatter(1, input_ids, score)
 
 
 class EncoderRepetitionPenaltyLogitsProcessor(LogitsProcessor):
-    r"""
-    [`LogitsProcessor`] that works similarly to [`RepetitionPenaltyLogitsProcessor`], but with an *inverse* penalty
+    r"""[`LogitsProcessor`] that works similarly to [`RepetitionPenaltyLogitsProcessor`], but with an *inverse* penalty
     that is applied to the tokens present in the prompt. In other words, a penalty above 1.0 increases the odds of
     selecting tokens that were present in the prompt.
 
@@ -363,6 +358,7 @@ class EncoderRepetitionPenaltyLogitsProcessor(LogitsProcessor):
     for encoder-decoder models, it can also be used with decoder-only models like LLMs.
 
     Args:
+    ----
         penalty (`float`):
             The parameter for repetition penalty. 1.0 means no penalty. Above 1.0 rewards prompt tokens. Between 0.0
             and 1.0 penalizes prompt tokens.
@@ -370,7 +366,7 @@ class EncoderRepetitionPenaltyLogitsProcessor(LogitsProcessor):
             The encoder_input_ids that should be repeated within the decoder ids.
 
     Examples:
-
+    --------
     ```python
     >>> from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -388,11 +384,13 @@ class EncoderRepetitionPenaltyLogitsProcessor(LogitsProcessor):
     >>> print(tokenizer.batch_decode(gen_out, skip_special_tokens=True)[0])
     Alice and Bob. The third member's name was Bob. The third member's name was Bob.
     ```
+
     """
 
-    def __init__(self, penalty: float, encoder_input_ids: torch.LongTensor):
+    def __init__(self, penalty: float, encoder_input_ids: torch.LongTensor) -> None:
         if not isinstance(penalty, float) or not (penalty > 0):
-            raise ValueError(f"`penalty` has to be a strictly positive float, but is {penalty}")
+            msg = f"`penalty` has to be a strictly positive float, but is {penalty}"
+            raise ValueError(msg)
 
         self.penalty = 1 / penalty
         self.encoder_input_ids = encoder_input_ids
@@ -404,16 +402,15 @@ class EncoderRepetitionPenaltyLogitsProcessor(LogitsProcessor):
         # if score < 0 then hallucination penalty has to be multiplied to increase the token probabilities
         score = torch.where(score < 0, score * self.penalty, score / self.penalty)
 
-        scores_processed = scores.scatter(1, self.encoder_input_ids, score)
-        return scores_processed
+        return scores.scatter(1, self.encoder_input_ids, score)
 
 
 class TopPLogitsWarper(LogitsWarper):
-    """
-    [`LogitsWarper`] that performs top-p, i.e. restricting to top tokens summing to prob_cut_off <= prob_cut_off. Often
+    """[`LogitsWarper`] that performs top-p, i.e. restricting to top tokens summing to prob_cut_off <= prob_cut_off. Often
     used together with [`TemperatureLogitsWarper`] and [`TopKLogitsWarper`].
 
     Args:
+    ----
         top_p (`float`):
             If set to < 1, only the smallest set of most probable tokens with probabilities that add up to `top_p` or
             higher are kept for generation.
@@ -423,7 +420,7 @@ class TopPLogitsWarper(LogitsWarper):
             Minimum number of tokens that cannot be filtered.
 
     Examples:
-
+    --------
     ```python
     >>> from transformers import AutoTokenizer, AutoModelForCausalLM, set_seed
 
@@ -446,14 +443,17 @@ class TopPLogitsWarper(LogitsWarper):
     >>> print(tokenizer.batch_decode(outputs, skip_special_tokens=True)[0])
     A sequence: 1, 2, 3, 4, 5, 6, 7, 8, 9
     ```
+
     """
 
-    def __init__(self, top_p: float, filter_value: float = -float("Inf"), min_tokens_to_keep: int = 1):
+    def __init__(self, top_p: float, filter_value: float = -float("Inf"), min_tokens_to_keep: int = 1) -> None:
         top_p = float(top_p)
         if top_p < 0 or top_p > 1.0:
-            raise ValueError(f"`top_p` has to be a float > 0 and < 1, but is {top_p}")
+            msg = f"`top_p` has to be a float > 0 and < 1, but is {top_p}"
+            raise ValueError(msg)
         if not isinstance(min_tokens_to_keep, int) or (min_tokens_to_keep < 1):
-            raise ValueError(f"`min_tokens_to_keep` has to be a positive integer, but is {min_tokens_to_keep}")
+            msg = f"`min_tokens_to_keep` has to be a positive integer, but is {min_tokens_to_keep}"
+            raise ValueError(msg)
 
         self.top_p = top_p
         self.filter_value = filter_value
@@ -471,16 +471,15 @@ class TopPLogitsWarper(LogitsWarper):
 
         # scatter sorted tensors to original indexing
         indices_to_remove = sorted_indices_to_remove.scatter(1, sorted_indices, sorted_indices_to_remove)
-        scores_processed = scores.masked_fill(indices_to_remove, self.filter_value)
-        return scores_processed
+        return scores.masked_fill(indices_to_remove, self.filter_value)
 
 
 class TopKLogitsWarper(LogitsWarper):
-    r"""
-    [`LogitsWarper`] that performs top-k, i.e. restricting to the k highest probability elements. Often used together
+    r"""[`LogitsWarper`] that performs top-k, i.e. restricting to the k highest probability elements. Often used together
     with [`TemperatureLogitsWarper`] and [`TopPLogitsWarper`].
 
     Args:
+    ----
         top_k (`int`):
             The number of highest probability vocabulary tokens to keep for top-k-filtering.
         filter_value (`float`, *optional*, defaults to -inf):
@@ -489,7 +488,7 @@ class TopKLogitsWarper(LogitsWarper):
             Minimum number of tokens that cannot be filtered.
 
     Examples:
-
+    --------
     ```python
     >>> from transformers import AutoTokenizer, AutoModelForCausalLM, set_seed
 
@@ -510,11 +509,13 @@ class TopKLogitsWarper(LogitsWarper):
     >>> print(tokenizer.batch_decode(outputs, skip_special_tokens=True)[0])
     A sequence: A, B, C, D, E, F, G, H, I
     ```
+
     """
 
-    def __init__(self, top_k: int, filter_value: float = -float("Inf"), min_tokens_to_keep: int = 1):
+    def __init__(self, top_k: int, filter_value: float = -float("Inf"), min_tokens_to_keep: int = 1) -> None:
         if not isinstance(top_k, int) or top_k <= 0:
-            raise ValueError(f"`top_k` has to be a strictly positive integer, but is {top_k}")
+            msg = f"`top_k` has to be a strictly positive integer, but is {top_k}"
+            raise ValueError(msg)
 
         self.top_k = max(top_k, min_tokens_to_keep)
         self.filter_value = filter_value
@@ -524,13 +525,11 @@ class TopKLogitsWarper(LogitsWarper):
         top_k = min(self.top_k, scores.size(-1))  # Safety check
         # Remove all tokens with a probability less than the last token of the top-k
         indices_to_remove = scores < torch.topk(scores, top_k)[0][..., -1, None]
-        scores_processed = scores.masked_fill(indices_to_remove, self.filter_value)
-        return scores_processed
+        return scores.masked_fill(indices_to_remove, self.filter_value)
 
 
 class MinPLogitsWarper(LogitsWarper):
-    """
-    [`LogitsWarper`] that performs min-p, i.e. keeps all tokens that are above a minimum probability, scaled by the
+    """[`LogitsWarper`] that performs min-p, i.e. keeps all tokens that are above a minimum probability, scaled by the
     probability of the most likely token. As a result, the filter becomes more agressive in the presence of
     high-probability tokens, which is a sign of a confident output that we shouldn't deviate from.
 
@@ -540,6 +539,7 @@ class MinPLogitsWarper(LogitsWarper):
     Created by @menhguin and @kalomaze (github handles). Code adapted from [this external PR](https://github.com/oobabooga/text-generation-webui/pull/4449/files)
 
     Args:
+    ----
         min_p (`float`):
             Minimum token probability, which will be scaled by the probability of the most likely token. It must be a
             value between 0 and 1. Typical values are in the 0.01-0.2 range, comparably selective as setting `top_p` in
@@ -550,7 +550,7 @@ class MinPLogitsWarper(LogitsWarper):
             Minimum number of tokens that cannot be filtered.
 
     Examples:
-
+    --------
     ```python
     >>> from transformers import AutoTokenizer, AutoModelForCausalLM, set_seed
 
@@ -573,13 +573,16 @@ class MinPLogitsWarper(LogitsWarper):
     >>> print(tokenizer.batch_decode(outputs, skip_special_tokens=True)[0])
     A sequence: 1, 2, 3, 4, 5, 6, 7, 8, 9
     ```
+
     """
 
-    def __init__(self, min_p: float, filter_value: float = -float("Inf"), min_tokens_to_keep: int = 1):
+    def __init__(self, min_p: float, filter_value: float = -float("Inf"), min_tokens_to_keep: int = 1) -> None:
         if not (0 <= min_p <= 1.0):
-            raise ValueError(f"`min_p` has to be a float in the [0, 1] interval, but is {min_p}")
+            msg = f"`min_p` has to be a float in the [0, 1] interval, but is {min_p}"
+            raise ValueError(msg)
         if not isinstance(min_tokens_to_keep, int) or (min_tokens_to_keep < 1):
-            raise ValueError(f"`min_tokens_to_keep` has to be a positive integer, but is {min_tokens_to_keep}")
+            msg = f"`min_tokens_to_keep` has to be a positive integer, but is {min_tokens_to_keep}"
+            raise ValueError(msg)
 
         self.min_p = min_p
         self.filter_value = filter_value
@@ -601,19 +604,18 @@ class MinPLogitsWarper(LogitsWarper):
         sorted_indices_to_remove[..., : self.min_tokens_to_keep] = False
 
         indices_to_remove = sorted_indices_to_remove.scatter(1, sorted_indices, sorted_indices_to_remove)
-        scores_processed = scores.masked_fill(indices_to_remove, self.filter_value)
-        return scores_processed
+        return scores.masked_fill(indices_to_remove, self.filter_value)
 
 
 class TypicalLogitsWarper(LogitsWarper):
-    r"""
-    [`LogitsWarper`] that performs typical decoding. Inspired on how humans use language, it prioritizes tokens whose
+    r"""[`LogitsWarper`] that performs typical decoding. Inspired on how humans use language, it prioritizes tokens whose
     log probability is close to the entropy of the token probability distribution. This means that the most likely
     tokens may be discarded in the process.
 
     See [Typical Decoding for Natural Language Generation](https://arxiv.org/abs/2202.00666) for more information.
 
     Args:
+    ----
         mass (`float`, *optional*, defaults to 0.9):
             Value of typical_p between 0 and 1 inclusive, defaults to 0.9.
         filter_value (`float`, *optional*, defaults to -inf):
@@ -622,7 +624,7 @@ class TypicalLogitsWarper(LogitsWarper):
             Minimum number of tokens that cannot be filtered.
 
     Examples:
-
+    --------
     ```python
     >>> from transformers import AutoTokenizer, AutoModelForCausalLM, set_seed
 
@@ -656,14 +658,17 @@ class TypicalLogitsWarper(LogitsWarper):
     >>> print(outputs.scores[1][0, 934])
     tensor(-inf)
     ```
+
     """
 
-    def __init__(self, mass: float = 0.9, filter_value: float = -float("Inf"), min_tokens_to_keep: int = 1):
+    def __init__(self, mass: float = 0.9, filter_value: float = -float("Inf"), min_tokens_to_keep: int = 1) -> None:
         mass = float(mass)
         if not (mass > 0 and mass < 1):
-            raise ValueError(f"`typical_p` has to be a float > 0 and < 1, but is {mass}")
+            msg = f"`typical_p` has to be a float > 0 and < 1, but is {mass}"
+            raise ValueError(msg)
         if not isinstance(min_tokens_to_keep, int) or (min_tokens_to_keep < 1):
-            raise ValueError(f"`min_tokens_to_keep` has to be a positive integer, but is {min_tokens_to_keep}")
+            msg = f"`min_tokens_to_keep` has to be a positive integer, but is {min_tokens_to_keep}"
+            raise ValueError(msg)
 
         self.filter_value = filter_value
         self.mass = mass
@@ -689,17 +694,16 @@ class TypicalLogitsWarper(LogitsWarper):
         sorted_indices_to_remove[..., : self.min_tokens_to_keep] = 0
         indices_to_remove = sorted_indices_to_remove.scatter(1, sorted_indices, sorted_indices_to_remove)
 
-        scores_processed = scores.masked_fill(indices_to_remove, self.filter_value)
-        return scores_processed
+        return scores.masked_fill(indices_to_remove, self.filter_value)
 
 
 class EpsilonLogitsWarper(LogitsWarper):
-    r"""
-    [`LogitsWarper`] that performs epsilon-sampling, i.e. restricting to tokens with `prob >= epsilon`. Takes the
+    r"""[`LogitsWarper`] that performs epsilon-sampling, i.e. restricting to tokens with `prob >= epsilon`. Takes the
     largest min_tokens_to_keep tokens if no tokens satisfy this constraint. See [Truncation Sampling as Language Model
     Desmoothing](https://arxiv.org/abs/2210.15191) for more information.
 
     Args:
+    ----
         epsilon (`float`):
             If set to > 0, only the most tokens with probabilities `epsilon` or higher are kept for generation.
         filter_value (`float`, *optional*, defaults to -inf):
@@ -708,6 +712,7 @@ class EpsilonLogitsWarper(LogitsWarper):
             Minimum number of tokens that cannot be filtered.
 
     Examples:
+    --------
     ```python
     >>> from transformers import AutoTokenizer, AutoModelForCausalLM, set_seed
 
@@ -731,18 +736,19 @@ class EpsilonLogitsWarper(LogitsWarper):
     >>> print(tokenizer.batch_decode(outputs, skip_special_tokens=True)[0])
     A sequence: 1, 2, 3, 4, 5, 6, 7, 8, 9
     ```
+
     """
 
-    def __init__(self, epsilon: float, filter_value: float = -float("Inf"), min_tokens_to_keep: int = 1):
+    def __init__(self, epsilon: float, filter_value: float = -float("Inf"), min_tokens_to_keep: int = 1) -> None:
         epsilon = float(epsilon)
         if epsilon <= 0 or epsilon >= 1:
-            raise ValueError(f"`epsilon_cutoff` has to be a float > 0 and < 1, but is {epsilon}")
+            msg = f"`epsilon_cutoff` has to be a float > 0 and < 1, but is {epsilon}"
+            raise ValueError(msg)
 
         min_tokens_to_keep = int(min_tokens_to_keep)
         if min_tokens_to_keep < 1:
-            raise ValueError(
-                f"`min_tokens_to_keep` has to be a strictly positive integer, but is {min_tokens_to_keep}"
-            )
+            msg = f"`min_tokens_to_keep` has to be a strictly positive integer, but is {min_tokens_to_keep}"
+            raise ValueError(msg)
 
         self.epsilon = epsilon
         self.filter_value = filter_value
@@ -758,13 +764,11 @@ class EpsilonLogitsWarper(LogitsWarper):
         top_k = min(self.min_tokens_to_keep, scores.size(-1))  # Safety check
         indices_to_remove = indices_to_remove & (scores < torch.topk(scores, top_k)[0][..., -1, None])
 
-        scores_processed = scores.masked_fill(indices_to_remove, self.filter_value)
-        return scores_processed
+        return scores.masked_fill(indices_to_remove, self.filter_value)
 
 
 class EtaLogitsWarper(LogitsWarper):
-    r"""
-    [`LogitsWarper`] that performs eta-sampling, a technique to filter out tokens with probabilities below a dynamic
+    r"""[`LogitsWarper`] that performs eta-sampling, a technique to filter out tokens with probabilities below a dynamic
     cutoff value, `eta`, which is calculated based on a combination of the hyperparameter `epsilon` and the entropy of
     the token probabilities, i.e. `eta := min(epsilon, sqrt(epsilon * e^-entropy(probabilities)))`. Takes the largest
     min_tokens_to_keep tokens if no tokens satisfy this constraint. It addresses the issue of poor quality in long
@@ -774,6 +778,7 @@ class EtaLogitsWarper(LogitsWarper):
 
 
     Args:
+    ----
         epsilon (`float`):
             A float value in the range (0, 1). Hyperparameter used to calculate the dynamic cutoff value, `eta`. The
             suggested values from the paper ranges from 3e-4 to 4e-3 depending on the size of the model.
@@ -789,6 +794,7 @@ class EtaLogitsWarper(LogitsWarper):
             The device to allocate the tensors.
 
     Examples:
+    --------
     ```python
     >>> from transformers import AutoTokenizer, AutoModelForCausalLM, set_seed
 
@@ -812,20 +818,19 @@ class EtaLogitsWarper(LogitsWarper):
     >>> print(tokenizer.batch_decode(outputs, skip_special_tokens=True)[0])
     A sequence: 1, 2, 3, 4, 5, 6, 7, 8, 9
     ```
+
     """
 
-    def __init__(
-        self, epsilon: float, filter_value: float = -float("Inf"), min_tokens_to_keep: int = 1, device: str = "cpu"
-    ):
+    def __init__(self, epsilon: float, filter_value: float = -float("Inf"), min_tokens_to_keep: int = 1, device: str = "cpu") -> None:
         epsilon = float(epsilon)
         if epsilon <= 0 or epsilon >= 1:
-            raise ValueError(f"`eta_cutoff` has to be a float > 0 and < 1, but is {epsilon}")
+            msg = f"`eta_cutoff` has to be a float > 0 and < 1, but is {epsilon}"
+            raise ValueError(msg)
 
         min_tokens_to_keep = int(min_tokens_to_keep)
         if min_tokens_to_keep < 1:
-            raise ValueError(
-                f"`min_tokens_to_keep` has to be a strictly positive integer, but is {min_tokens_to_keep}"
-            )
+            msg = f"`min_tokens_to_keep` has to be a strictly positive integer, but is {min_tokens_to_keep}"
+            raise ValueError(msg)
 
         self.epsilon = torch.tensor(epsilon, device=device)
         self.filter_value = filter_value
@@ -842,16 +847,15 @@ class EtaLogitsWarper(LogitsWarper):
         top_k = min(self.min_tokens_to_keep, scores.size(-1))  # Safety check
         indices_to_remove = indices_to_remove & (scores < torch.topk(scores, top_k)[0][..., -1, None])
 
-        scores_processed = scores.masked_fill(indices_to_remove, self.filter_value)
-        return scores_processed
+        return scores.masked_fill(indices_to_remove, self.filter_value)
 
 
 def _get_ngrams(ngram_size: int, prev_input_ids: torch.Tensor, num_hypos: int):
-    """
-    Assume ngram_size=2 and prev_input_ids=tensor([[40, 2883, 2712, 4346]]). The output of generated ngrams look like
+    """Assume ngram_size=2 and prev_input_ids=tensor([[40, 2883, 2712, 4346]]). The output of generated ngrams look like
     this {(40,): [2883], (2883,): [2712], (2712,): [4346]}.
 
     Args:
+    ----
         ngram_size (`int`):
             The number sequential tokens taken as a group which may only occur once before being banned.
         prev_input_ids (`torch.Tensor`):
@@ -860,8 +864,10 @@ def _get_ngrams(ngram_size: int, prev_input_ids: torch.Tensor, num_hypos: int):
             The number of hypotheses for which n-grams need to be generated.
 
     Returns:
+    -------
         generated_ngrams (`dict`):
             Dictionary of generated ngrams.
+
     """
     # Initialize an empty list of dictionaries, one for each hypothesis (index) in the range of num_hypos
     generated_ngrams = [{} for _ in range(num_hypos)]
@@ -869,17 +875,17 @@ def _get_ngrams(ngram_size: int, prev_input_ids: torch.Tensor, num_hypos: int):
         gen_tokens = prev_input_ids[idx].tolist()
         generated_ngram = generated_ngrams[idx]
         # Loop through each n-gram of size ngram_size in the list of tokens (gen_tokens)
-        for ngram in zip(*[gen_tokens[i:] for i in range(ngram_size)]):
+        for ngram in zip(*[gen_tokens[i:] for i in range(ngram_size)], strict=False):
             prev_ngram_tuple = tuple(ngram[:-1])
-            generated_ngram[prev_ngram_tuple] = generated_ngram.get(prev_ngram_tuple, []) + [ngram[-1]]
+            generated_ngram[prev_ngram_tuple] = [*generated_ngram.get(prev_ngram_tuple, []), ngram[-1]]
     return generated_ngrams
 
 
 def _get_generated_ngrams(banned_ngrams, prev_input_ids, ngram_size, cur_len):
-    """
-    Determines the banned tokens for the current hypothesis based on previously generated n-grams.
+    """Determines the banned tokens for the current hypothesis based on previously generated n-grams.
 
     Args:
+    ----
         banned_ngrams (`dict`):
             A dictionary containing previously generated n-grams for each hypothesis.
         prev_input_ids (`torch.Tensor`):
@@ -890,7 +896,9 @@ def _get_generated_ngrams(banned_ngrams, prev_input_ids, ngram_size, cur_len):
             The current length of the token sequences for which the n-grams are being checked.
 
     Returns:
+    -------
         List of tokens that are banned.
+
     """
     # Before decoding the next token, prevent decoding of ngrams that have already appeared
     start_idx = cur_len + 1 - ngram_size
@@ -898,24 +906,17 @@ def _get_generated_ngrams(banned_ngrams, prev_input_ids, ngram_size, cur_len):
     return banned_ngrams.get(ngram_idx, [])
 
 
-def _calc_banned_ngram_tokens(
-    ngram_size: int, prev_input_ids: torch.Tensor, num_hypos: int, cur_len: int
-) -> List[Iterable[int]]:
-    """Copied from fairseq for no_repeat_ngram in beam_search"""
+def _calc_banned_ngram_tokens(ngram_size: int, prev_input_ids: torch.Tensor, num_hypos: int, cur_len: int) -> list[Iterable[int]]:
+    """Copied from fairseq for no_repeat_ngram in beam_search."""
     if cur_len + 1 < ngram_size:
         # return no banned tokens if we haven't generated no_repeat_ngram_size tokens yet
         return [[] for _ in range(num_hypos)]
     generated_ngrams = _get_ngrams(ngram_size, prev_input_ids, num_hypos)
-    banned_tokens = [
-        _get_generated_ngrams(generated_ngrams[hypo_idx], prev_input_ids[hypo_idx], ngram_size, cur_len)
-        for hypo_idx in range(num_hypos)
-    ]
-    return banned_tokens
+    return [_get_generated_ngrams(generated_ngrams[hypo_idx], prev_input_ids[hypo_idx], ngram_size, cur_len) for hypo_idx in range(num_hypos)]
 
 
 class NoRepeatNGramLogitsProcessor(LogitsProcessor):
-    r"""
-    N-grams are groups of "n" consecutive words, characters, or tokens taken from a sequence of text. Given the
+    r"""N-grams are groups of "n" consecutive words, characters, or tokens taken from a sequence of text. Given the
     sentence: "She runs fast", the bi-grams (n=2) would be ("she", "runs") and ("runs", "fast"). In text generation,
     avoiding repetitions of word sequences provides a more diverse output. This [`LogitsProcessor`] enforces no
     repetition of n-grams by setting the scores of banned tokens to negative infinity which eliminates those tokens
@@ -932,11 +933,12 @@ class NoRepeatNGramLogitsProcessor(LogitsProcessor):
     </Tip>
 
     Args:
+    ----
         ngram_size (`int`):
             All ngrams of size `ngram_size` can only occur once.
 
     Examples:
-
+    --------
     ```py
     >>> from transformers import AutoTokenizer, AutoModelForCausalLM
 
@@ -953,11 +955,13 @@ class NoRepeatNGramLogitsProcessor(LogitsProcessor):
     >>> print(tokenizer.decode(output[0], skip_special_tokens=True))
     Today I’m not sure if I can get a better understanding of the nature of this issue
     ```
+
     """
 
-    def __init__(self, ngram_size: int):
+    def __init__(self, ngram_size: int) -> None:
         if not isinstance(ngram_size, int) or ngram_size <= 0:
-            raise ValueError(f"`ngram_size` has to be a strictly positive integer, but is {ngram_size}")
+            msg = f"`ngram_size` has to be a strictly positive integer, but is {ngram_size}"
+            raise ValueError(msg)
         self.ngram_size = ngram_size
 
     @add_start_docstrings(LOGITS_PROCESSOR_INPUTS_DOCSTRING)
@@ -973,21 +977,21 @@ class NoRepeatNGramLogitsProcessor(LogitsProcessor):
 
 
 class EncoderNoRepeatNGramLogitsProcessor(LogitsProcessor):
-    r"""
-    [`LogitsProcessor`] that works similarly to [`NoRepeatNGramLogitsProcessor`], but applied exclusively to prevent
+    r"""[`LogitsProcessor`] that works similarly to [`NoRepeatNGramLogitsProcessor`], but applied exclusively to prevent
     the repetition of n-grams present in the prompt.
 
     It was designed to promote chattiness in a language model, by preventing the generation of n-grams present in
     previous conversation rounds.
 
     Args:
+    ----
         encoder_ngram_size (`int`):
             All ngrams of size `ngram_size` can only occur within the encoder input ids.
         encoder_input_ids (`int`):
             The encoder_input_ids that should not be repeated within the decoder ids.
 
     Examples:
-
+    --------
     ```py
     >>> from transformers import AutoTokenizer, AutoModelForCausalLM
 
@@ -1008,13 +1012,13 @@ class EncoderNoRepeatNGramLogitsProcessor(LogitsProcessor):
     Alice: I love cats. What do you love?
     Bob: My cats are very cute.
     ```
+
     """
 
-    def __init__(self, encoder_ngram_size: int, encoder_input_ids: torch.LongTensor):
+    def __init__(self, encoder_ngram_size: int, encoder_input_ids: torch.LongTensor) -> None:
         if not isinstance(encoder_ngram_size, int) or encoder_ngram_size <= 0:
-            raise ValueError(
-                f"`encoder_ngram_size` has to be a strictly positive integer, but is {encoder_ngram_size}"
-            )
+            msg = f"`encoder_ngram_size` has to be a strictly positive integer, but is {encoder_ngram_size}"
+            raise ValueError(msg)
         self.ngram_size = encoder_ngram_size
         if len(encoder_input_ids.shape) == 1:
             encoder_input_ids = encoder_input_ids.unsqueeze(0)
@@ -1029,10 +1033,7 @@ class EncoderNoRepeatNGramLogitsProcessor(LogitsProcessor):
         cur_len = input_ids.shape[-1]
         scores_processed = scores.clone()
         banned_batch_tokens = [
-            _get_generated_ngrams(
-                self.generated_ngrams[hypo_idx // num_beams], input_ids[hypo_idx], self.ngram_size, cur_len
-            )
-            for hypo_idx in range(num_hypos)
+            _get_generated_ngrams(self.generated_ngrams[hypo_idx // num_beams], input_ids[hypo_idx], self.ngram_size, cur_len) for hypo_idx in range(num_hypos)
         ]
 
         for i, banned_tokens in enumerate(banned_batch_tokens):
@@ -1042,8 +1043,7 @@ class EncoderNoRepeatNGramLogitsProcessor(LogitsProcessor):
 
 
 class SequenceBiasLogitsProcessor(LogitsProcessor):
-    """
-    [`LogitsProcessor`] that applies an additive bias on sequences. The bias is applied to the last token of a sequence
+    """[`LogitsProcessor`] that applies an additive bias on sequences. The bias is applied to the last token of a sequence
     when the next generated token can complete it. Consequently, to take the most of biasing sequences with more than
     one token, consider using beam methods (to gracefully work around partially completed sequences that have a
     negative bias) and applying the bias to their prefixes (to ensure the bias is applied earlier).
@@ -1058,6 +1058,7 @@ class SequenceBiasLogitsProcessor(LogitsProcessor):
     </Tip>
 
     Args:
+    ----
         sequence_bias (`Dict[Tuple[int], float]`):
             Dictionary that maps a sequence of tokens to its bias term. Positive biases increase the odds of the
             sequence being selected, while negative biases do the opposite. If a sequence has a length of 1, its bias
@@ -1065,7 +1066,7 @@ class SequenceBiasLogitsProcessor(LogitsProcessor):
             completed (in the token selection step after this processor is applied).
 
     Examples:
-
+    --------
     ```python
     >>> from transformers import AutoTokenizer, AutoModelForCausalLM
 
@@ -1101,9 +1102,10 @@ class SequenceBiasLogitsProcessor(LogitsProcessor):
     >>> print(tokenizer.batch_decode(biased_ids, skip_special_tokens=True)[0])
     The full name of Donald is Donald Duck.
     ```
+
     """
 
-    def __init__(self, sequence_bias: Dict[Tuple[int], float]):
+    def __init__(self, sequence_bias: dict[tuple[int], float]) -> None:
         self.sequence_bias = sequence_bias
         self._validate_arguments()
 
@@ -1143,10 +1145,9 @@ class SequenceBiasLogitsProcessor(LogitsProcessor):
             )
 
         # 5 - apply the bias to the scores
-        scores_processed = scores + bias
-        return scores_processed
+        return scores + bias
 
-    def _prepare_bias_variables(self, scores: torch.FloatTensor):
+    def _prepare_bias_variables(self, scores: torch.FloatTensor) -> None:
         vocabulary_size = scores.shape[-1]
 
         # Check biased tokens out of bounds
@@ -1156,10 +1157,8 @@ class SequenceBiasLogitsProcessor(LogitsProcessor):
                 if token_id >= vocabulary_size:
                     invalid_biases.append(token_id)
         if len(invalid_biases) > 0:
-            raise ValueError(
-                f"The model vocabulary size is {vocabulary_size}, but the following tokens were being biased: "
-                f"{invalid_biases}"
-            )
+            msg = f"The model vocabulary size is {vocabulary_size}, but the following tokens were being biased: " f"{invalid_biases}"
+            raise ValueError(msg)
 
         # Precompute the bias tensors to be applied. Sequences of length 1 are kept separately, as they can be applied
         # with simpler logic.
@@ -1170,28 +1169,26 @@ class SequenceBiasLogitsProcessor(LogitsProcessor):
 
         self.prepared_bias_variables = True
 
-    def _validate_arguments(self):
+    def _validate_arguments(self) -> None:
         sequence_bias = self.sequence_bias
         if not isinstance(sequence_bias, dict) or len(sequence_bias) == 0:
-            raise ValueError(f"`sequence_bias` has to be a non-empty dictionary, but is {sequence_bias}.")
-        if any(not isinstance(sequence_ids, tuple) for sequence_ids in sequence_bias.keys()):
-            raise ValueError(f"`sequence_bias` has to be a dict with tuples as keys, but is {sequence_bias}.")
+            msg = f"`sequence_bias` has to be a non-empty dictionary, but is {sequence_bias}."
+            raise ValueError(msg)
+        if any(not isinstance(sequence_ids, tuple) for sequence_ids in sequence_bias):
+            msg = f"`sequence_bias` has to be a dict with tuples as keys, but is {sequence_bias}."
+            raise ValueError(msg)
         if any(
-            any((not isinstance(token_id, (int, np.integer)) or token_id < 0) for token_id in sequence_ids)
-            or len(sequence_ids) == 0
-            for sequence_ids in sequence_bias.keys()
+            any((not isinstance(token_id, int | np.integer) or token_id < 0) for token_id in sequence_ids) or len(sequence_ids) == 0 for sequence_ids in sequence_bias
         ):
-            raise ValueError(
-                f"Each key in `sequence_bias` has to be a non-empty tuple of positive integers, but is "
-                f"{sequence_bias}."
-            )
+            msg = f"Each key in `sequence_bias` has to be a non-empty tuple of positive integers, but is " f"{sequence_bias}."
+            raise ValueError(msg)
         if any(not isinstance(bias, float) for bias in sequence_bias.values()):
-            raise ValueError(f"`sequence_bias` has to be a dict with floats as values, but is {sequence_bias}.")
+            msg = f"`sequence_bias` has to be a dict with floats as values, but is {sequence_bias}."
+            raise ValueError(msg)
 
 
 class NoBadWordsLogitsProcessor(SequenceBiasLogitsProcessor):
-    """
-    [`LogitsProcessor`] that enforces that specified sequences will never be selected.
+    """[`LogitsProcessor`] that enforces that specified sequences will never be selected.
 
     <Tip>
 
@@ -1204,13 +1201,14 @@ class NoBadWordsLogitsProcessor(SequenceBiasLogitsProcessor):
     </Tip>
 
     Args:
+    ----
         bad_words_ids (`List[List[int]]`):
             List of list of token ids that are not allowed to be generated.
         eos_token_id (`Union[int, List[int], torch.Tensor]`, *optional*):
             The id(s) of the *end-of-sequence* token.
 
     Examples:
-
+    --------
     ```python
     >>> from transformers import AutoTokenizer, AutoModelForCausalLM
 
@@ -1242,11 +1240,10 @@ class NoBadWordsLogitsProcessor(SequenceBiasLogitsProcessor):
     >>> print(tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0])
     In a word, the cake is a bit of a surprise.
     ```
+
     """
 
-    def __init__(
-        self, bad_words_ids: List[List[int]], eos_token_id: Optional[Union[int, List[int], torch.Tensor]] = None
-    ):
+    def __init__(self, bad_words_ids: list[list[int]], eos_token_id: int | list[int] | torch.Tensor | None = None) -> None:
         self.bad_word_ids = bad_words_ids
         self._validate_arguments()
 
@@ -1257,35 +1254,31 @@ class NoBadWordsLogitsProcessor(SequenceBiasLogitsProcessor):
                     eos_token_id = [eos_token_id]
                 eos_token_id = torch.tensor(eos_token_id)
 
-            bad_words_ids = list(
-                filter(lambda bad_token_seq: all(bad_token_seq != [i] for i in eos_token_id), bad_words_ids)
-            )
+            bad_words_ids = list(filter(lambda bad_token_seq: all(bad_token_seq != [i] for i in eos_token_id), bad_words_ids))
 
         # Forbidding a sequence is equivalent to setting its bias to -inf
         sequence_bias = {tuple(sequence): float("-inf") for sequence in bad_words_ids}
         super().__init__(sequence_bias=sequence_bias)
 
-    def _validate_arguments(self):
+    def _validate_arguments(self) -> None:
         bad_words_ids = self.bad_word_ids
         if not isinstance(bad_words_ids, list) or len(bad_words_ids) == 0:
-            raise ValueError(f"`bad_words_ids` has to be a non-empty list, but is {bad_words_ids}.")
+            msg = f"`bad_words_ids` has to be a non-empty list, but is {bad_words_ids}."
+            raise ValueError(msg)
         if any(not isinstance(bad_word_ids, list) for bad_word_ids in bad_words_ids):
-            raise ValueError(f"`bad_words_ids` has to be a list of lists, but is {bad_words_ids}.")
-        if any(
-            any((not isinstance(token_id, (int, np.integer)) or token_id < 0) for token_id in bad_word_ids)
-            for bad_word_ids in bad_words_ids
-        ):
-            raise ValueError(
-                f"Each list in `bad_words_ids` has to be a list of positive integers, but is {bad_words_ids}."
-            )
+            msg = f"`bad_words_ids` has to be a list of lists, but is {bad_words_ids}."
+            raise ValueError(msg)
+        if any(any((not isinstance(token_id, int | np.integer) or token_id < 0) for token_id in bad_word_ids) for bad_word_ids in bad_words_ids):
+            msg = f"Each list in `bad_words_ids` has to be a list of positive integers, but is {bad_words_ids}."
+            raise ValueError(msg)
 
 
 class PrefixConstrainedLogitsProcessor(LogitsProcessor):
-    r"""
-    [`LogitsProcessor`] that enforces constrained generation and is useful for prefix-conditioned constrained
+    r"""[`LogitsProcessor`] that enforces constrained generation and is useful for prefix-conditioned constrained
     generation. See [Autoregressive Entity Retrieval](https://arxiv.org/abs/2010.00904) for more information.
 
     Args:
+    ----
         prefix_allowed_tokens_fn (`Callable[[int, torch.Tensor], List[int]]`):
             This function constraints the beam search to allowed tokens only at each step. This function takes 2
             arguments `inputs_ids` and the batch ID `batch_id`. It has to return a list with the allowed tokens for the
@@ -1293,7 +1286,7 @@ class PrefixConstrainedLogitsProcessor(LogitsProcessor):
             `batch_id`.
 
     Examples:
-
+    --------
     ```py
     >>> from transformers import AutoTokenizer, AutoModelForCausalLM
 
@@ -1325,9 +1318,10 @@ class PrefixConstrainedLogitsProcessor(LogitsProcessor):
     >>> print(tokenizer.batch_decode(outputs, skip_special_tokens=True)[0])
     Alice and Bob Marley
     ```
+
     """
 
-    def __init__(self, prefix_allowed_tokens_fn: Callable[[int, torch.Tensor], List[int]], num_beams: int):
+    def __init__(self, prefix_allowed_tokens_fn: Callable[[int, torch.Tensor], list[int]], num_beams: int) -> None:
         self._prefix_allowed_tokens_fn = prefix_allowed_tokens_fn
         self._num_beams = num_beams
 
@@ -1338,20 +1332,19 @@ class PrefixConstrainedLogitsProcessor(LogitsProcessor):
             for beam_id, sent in enumerate(beam_sent):
                 prefix_allowed_tokens = self._prefix_allowed_tokens_fn(batch_id, sent)
                 if len(prefix_allowed_tokens) == 0:
-                    raise ValueError(
+                    msg = (
                         f"`prefix_allowed_tokens_fn` returned an empty list for batch ID {batch_id}."
                         f"This means that the constraint is unsatisfiable. Please check your implementation"
                         f"of `prefix_allowed_tokens_fn` "
                     )
+                    raise ValueError(msg)
                 mask[batch_id * self._num_beams + beam_id, prefix_allowed_tokens] = 0
 
-        scores_processed = scores + mask
-        return scores_processed
+        return scores + mask
 
 
 class HammingDiversityLogitsProcessor(LogitsProcessor):
-    r"""
-    [`LogitsProcessor`] that enforces diverse beam search.
+    r"""[`LogitsProcessor`] that enforces diverse beam search.
 
     Note that this logits processor is only effective for [`PreTrainedModel.group_beam_search`]. See [Diverse Beam
     Search: Decoding Diverse Solutions from Neural Sequence Models](https://arxiv.org/pdf/1610.02424.pdf) for more
@@ -1362,6 +1355,7 @@ class HammingDiversityLogitsProcessor(LogitsProcessor):
     beams in the same time step.
 
     Args:
+    ----
         diversity_penalty (`float`):
             This value is subtracted from a beam's score if it generates a token same as any beam from other group at a
             particular time. A higher `diversity_penalty` will enforce greater diversity among the beams. Adjusting
@@ -1373,7 +1367,7 @@ class HammingDiversityLogitsProcessor(LogitsProcessor):
             [this paper](https://arxiv.org/pdf/1610.02424.pdf) for more details.
 
     Examples:
-
+    --------
     ```python
     >>> from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
     >>> import torch
@@ -1421,19 +1415,24 @@ class HammingDiversityLogitsProcessor(LogitsProcessor):
     ['the solar system formed 4.6 billion years ago from the collapse of a giant interstellar molecular cloud. of the objects that orbit the Sun directly, the largest are the eight planets.',
     'the solar system formed 4.6 billion years ago from the collapse of a giant interstellar molecular cloud. of the objects that orbit the Sun directly, the largest are the eight planets. the rest of the objects are smaller objects, such as the five dwarf planets and small solar system bodies.']
     ```
+
     """
 
-    def __init__(self, diversity_penalty: float, num_beams: int, num_beam_groups: int):
+    def __init__(self, diversity_penalty: float, num_beams: int, num_beam_groups: int) -> None:
         if not isinstance(diversity_penalty, float) or (not diversity_penalty > 0.0):
-            raise ValueError("`diversity_penalty` should be a float strictly larger than 0.")
+            msg = "`diversity_penalty` should be a float strictly larger than 0."
+            raise ValueError(msg)
         self._diversity_penalty = diversity_penalty
         if not isinstance(num_beams, int) or num_beams < 2:
-            raise ValueError("`num_beams` should be an integer strictly larger than 1.")
+            msg = "`num_beams` should be an integer strictly larger than 1."
+            raise ValueError(msg)
         self._num_beams = num_beams
         if not isinstance(num_beam_groups, int) or num_beam_groups < 2:
-            raise ValueError("`num_beam_groups` should be an integer strictly larger than 1.")
+            msg = "`num_beam_groups` should be an integer strictly larger than 1."
+            raise ValueError(msg)
         if num_beam_groups > num_beams:
-            raise ValueError("`beam_groups` has to be smaller or equal to `num_beams`.")
+            msg = "`beam_groups` has to be smaller or equal to `num_beams`."
+            raise ValueError(msg)
         self._num_sub_beams = num_beams // num_beam_groups
 
     def __call__(
@@ -1443,8 +1442,8 @@ class HammingDiversityLogitsProcessor(LogitsProcessor):
         current_tokens: torch.LongTensor,
         beam_group_idx: int,
     ) -> torch.FloatTensor:
-        r"""
-        Args:
+        r"""Args:
+        ----
             input_ids (`torch.LongTensor` of shape `(batch_size, sequence_length)`):
                 Indices of input sequence tokens in the vocabulary. [What are input IDs?](../glossary#input-ids)
             scores (`torch.FloatTensor` of shape `(batch_size, config.vocab_size)`):
@@ -1457,8 +1456,10 @@ class HammingDiversityLogitsProcessor(LogitsProcessor):
                 The index of the beam group currently being processed.
 
         Return:
+        ------
             `torch.FloatTensor` of shape `(batch_size, config.vocab_size)`:
                 The processed prediction scores.
+
         """
         # hamming diversity: penalise using same token in current group which was used in previous groups at
         # the same time step
@@ -1474,28 +1475,24 @@ class HammingDiversityLogitsProcessor(LogitsProcessor):
         scores_processed = scores.clone()
         for batch_idx in range(batch_size):
             # predicted tokens of last time step of previous groups
-            previous_group_tokens = current_tokens[
-                batch_idx * self._num_beams : batch_idx * self._num_beams + group_start_idx
-            ]
+            previous_group_tokens = current_tokens[batch_idx * self._num_beams : batch_idx * self._num_beams + group_start_idx]
             token_frequency = torch.bincount(previous_group_tokens, minlength=vocab_size).to(scores.device)
-            scores_processed[batch_idx * group_size : (batch_idx + 1) * group_size] -= (
-                self._diversity_penalty * token_frequency
-            )
+            scores_processed[batch_idx * group_size : (batch_idx + 1) * group_size] -= self._diversity_penalty * token_frequency
 
         return scores_processed
 
 
 class ForcedBOSTokenLogitsProcessor(LogitsProcessor):
-    r"""
-    [`LogitsProcessor`] that enforces the specified token as the first generated token. Used with encoder-decoder
+    r"""[`LogitsProcessor`] that enforces the specified token as the first generated token. Used with encoder-decoder
     models.
 
     Args:
+    ----
         bos_token_id (`int`):
             The id of the token to force as the first generated token.
 
     Examples:
-
+    --------
     ```python
     >>> from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 
@@ -1515,9 +1512,10 @@ class ForcedBOSTokenLogitsProcessor(LogitsProcessor):
     >>> print(tokenizer.batch_decode(outputs)[0])
     <pad></s>
     ```
+
     """
 
-    def __init__(self, bos_token_id: int):
+    def __init__(self, bos_token_id: int) -> None:
         self.bos_token_id = bos_token_id
 
     @add_start_docstrings(LOGITS_PROCESSOR_INPUTS_DOCSTRING)
@@ -1531,10 +1529,10 @@ class ForcedBOSTokenLogitsProcessor(LogitsProcessor):
 
 
 class ForcedEOSTokenLogitsProcessor(LogitsProcessor):
-    r"""
-    [`LogitsProcessor`] that enforces the specified token as the last generated token when `max_length` is reached.
+    r"""[`LogitsProcessor`] that enforces the specified token as the last generated token when `max_length` is reached.
 
     Args:
+    ----
         max_length (`int`):
             The maximum length of the sequence to be generated.
         eos_token_id (`Union[int, List[int], torch.Tensor]`):
@@ -1543,7 +1541,7 @@ class ForcedEOSTokenLogitsProcessor(LogitsProcessor):
             The device to allocate the tensors.
 
     Examples:
-
+    --------
     ```python
     >>> from transformers import AutoTokenizer, AutoModelForCausalLM
 
@@ -1562,9 +1560,10 @@ class ForcedEOSTokenLogitsProcessor(LogitsProcessor):
     >>> print(tokenizer.batch_decode(outputs)[0])
     A sequence: 1, 2, 3, 4, 5, 6, 7,<|endoftext|>
     ```
+
     """
 
-    def __init__(self, max_length: int, eos_token_id: Union[int, List[int], torch.Tensor], device: str = "cpu"):
+    def __init__(self, max_length: int, eos_token_id: int | list[int] | torch.Tensor, device: str = "cpu") -> None:
         self.max_length = max_length
 
         if not isinstance(eos_token_id, torch.Tensor):
@@ -1574,7 +1573,8 @@ class ForcedEOSTokenLogitsProcessor(LogitsProcessor):
         self.eos_token_id = eos_token_id
 
         if torch.is_floating_point(eos_token_id) or (eos_token_id < 0).any():
-            raise ValueError(f"`eos_token_id` has to be a list of positive integers, but is {eos_token_id}")
+            msg = f"`eos_token_id` has to be a list of positive integers, but is {eos_token_id}"
+            raise ValueError(msg)
 
     @add_start_docstrings(LOGITS_PROCESSOR_INPUTS_DOCSTRING)
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
@@ -1587,8 +1587,7 @@ class ForcedEOSTokenLogitsProcessor(LogitsProcessor):
 
 
 class InfNanRemoveLogitsProcessor(LogitsProcessor):
-    r"""
-    [`LogitsProcessor`] that removes all `nan` and `inf` values to avoid the generation method to fail. Note that using
+    r"""[`LogitsProcessor`] that removes all `nan` and `inf` values to avoid the generation method to fail. Note that using
     the logits processor should only be used if necessary since it can slow down the generation method.
 
     This logits processor has no `generate` example, as there shouldn't be a correct combination of flags that warrants
@@ -1602,18 +1601,16 @@ class InfNanRemoveLogitsProcessor(LogitsProcessor):
 
         # set all +/-inf values to max/min possible value
         scores_processed = torch.where(scores == float("inf"), torch.finfo(scores.dtype).max, scores_processed)
-        scores_processed = torch.where(scores == -float("inf"), torch.finfo(scores.dtype).min, scores_processed)
-
-        return scores_processed
+        return torch.where(scores == -float("inf"), torch.finfo(scores.dtype).min, scores_processed)
 
 
 class ExponentialDecayLengthPenalty(LogitsProcessor):
-    r"""
-    [`LogitsProcessor`] that exponentially increases the score of the `eos_token_id` after `start_index` has been
+    r"""[`LogitsProcessor`] that exponentially increases the score of the `eos_token_id` after `start_index` has been
     reached. This allows generating shorter sequences without having a hard cutoff, allowing the `eos_token` to be
     predicted in a meaningful position.
 
     Args:
+    ----
         exponential_decay_length_penalty (`tuple(int, float)`):
             This tuple shall consist of: `(start_index, decay_factor)` where `start_index` indicates where penalty
             starts and `decay_factor` represents the factor of exponential decay
@@ -1623,7 +1620,7 @@ class ExponentialDecayLengthPenalty(LogitsProcessor):
             The length of the input sequence.
 
     Examples:
-
+    --------
     ```python
     >>> from transformers import AutoTokenizer, AutoModelForCausalLM, set_seed
 
@@ -1673,14 +1670,15 @@ class ExponentialDecayLengthPenalty(LogitsProcessor):
     Just wanted to let you know, I received a link to an ebook, the book How To Start A Social Network which was
     published in 2010.<|endoftext|>
     ```
+
     """
 
     def __init__(
         self,
-        exponential_decay_length_penalty: Tuple[int, float],
-        eos_token_id: Union[int, List[int], torch.Tensor],
+        exponential_decay_length_penalty: tuple[int, float],
+        eos_token_id: int | list[int] | torch.Tensor,
         input_ids_seq_length: int,
-    ):
+    ) -> None:
         self.regulation_start = exponential_decay_length_penalty[0] + input_ids_seq_length
         self.regulation_factor = exponential_decay_length_penalty[1]
 
@@ -1691,7 +1689,8 @@ class ExponentialDecayLengthPenalty(LogitsProcessor):
         self.eos_token_id = eos_token_id
 
         if torch.is_floating_point(eos_token_id) or (eos_token_id < 0).any():
-            raise ValueError(f"`eos_token_id` has to be a list of positive integers, but is {eos_token_id}")
+            msg = f"`eos_token_id` has to be a list of positive integers, but is {eos_token_id}"
+            raise ValueError(msg)
 
     @add_start_docstrings(LOGITS_PROCESSOR_INPUTS_DOCSTRING)
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
@@ -1709,14 +1708,13 @@ class ExponentialDecayLengthPenalty(LogitsProcessor):
 
 
 class LogitNormalization(LogitsProcessor, LogitsWarper):
-    r"""
-    [`LogitsWarper`] and [`LogitsProcessor`] for normalizing the scores using log-softmax. It's important to normalize
+    r"""[`LogitsWarper`] and [`LogitsProcessor`] for normalizing the scores using log-softmax. It's important to normalize
     the scores during beam search, after applying the logits processors or warpers, since the search algorithm used in
     this library doesn't do it (it only does it before, but they may need re-normalization) but it still supposes that
     the scores are normalized when comparing the hypotheses.
 
-    Examples:
-
+    Examples
+    --------
     ```python
     >>> from transformers import AutoTokenizer, AutoModelForCausalLM
     >>> import torch
@@ -1737,23 +1735,22 @@ class LogitNormalization(LogitsProcessor, LogitsWarper):
     >>> print(torch.allclose(torch.sum(torch.exp(outputs.scores[-1])), torch.Tensor((1.000,)), rtol=1e-4))
     True
     ```
+
     """
 
     @add_start_docstrings(LOGITS_PROCESSOR_INPUTS_DOCSTRING)
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
-        scores_processed = scores.log_softmax(dim=-1)
-        return scores_processed
+        return scores.log_softmax(dim=-1)
 
 
 class SuppressTokensAtBeginLogitsProcessor(LogitsProcessor):
-    r"""
-    [`SuppressTokensAtBeginLogitsProcessor`] supresses a list of tokens as soon as the `generate` function starts
+    r"""[`SuppressTokensAtBeginLogitsProcessor`] supresses a list of tokens as soon as the `generate` function starts
     generating using `begin_index` tokens. This should ensure that the tokens defined by `begin_suppress_tokens` are
     not generated at the begining. Originally created for
     [Whisper](https://huggingface.co/docs/transformers/model_doc/whisper).
 
-    Examples:
-
+    Examples
+    --------
     ```python
     >>> from transformers import AutoProcessor, WhisperForConditionalGeneration
     >>> from datasets import load_dataset
@@ -1778,13 +1775,14 @@ class SuppressTokensAtBeginLogitsProcessor(LogitsProcessor):
     >>> print(outputs.scores[0][0, 50256])
     tensor(11.2027)
     ```
+
     """
 
-    def __init__(self, begin_suppress_tokens, begin_index, device: str = "cpu"):
+    def __init__(self, begin_suppress_tokens, begin_index, device: str = "cpu") -> None:
         self.begin_suppress_tokens = torch.tensor(list(begin_suppress_tokens), device=device)
         self.begin_index = begin_index
 
-    def set_begin_index(self, begin_index):
+    def set_begin_index(self, begin_index) -> None:
         self.begin_index = begin_index
 
     @add_start_docstrings(LOGITS_PROCESSOR_INPUTS_DOCSTRING)
@@ -1799,13 +1797,12 @@ class SuppressTokensAtBeginLogitsProcessor(LogitsProcessor):
 
 
 class SuppressTokensLogitsProcessor(LogitsProcessor):
-    r"""
-    This processor can be used to suppress a list of tokens. The processor will set their log probs to `-inf` so
+    r"""This processor can be used to suppress a list of tokens. The processor will set their log probs to `-inf` so
     that they are not generated. Originally created for
     [Whisper](https://huggingface.co/docs/transformers/model_doc/whisper).
 
-    Examples:
-
+    Examples
+    --------
     ```python
     >>> from transformers import AutoProcessor, WhisperForConditionalGeneration
     >>> from datasets import load_dataset
@@ -1825,28 +1822,27 @@ class SuppressTokensLogitsProcessor(LogitsProcessor):
     >>> print(outputs.scores[1][0, 1])
     tensor(6.0678)
     ```
+
     """
 
-    def __init__(self, suppress_tokens, device: str = "cpu"):
+    def __init__(self, suppress_tokens, device: str = "cpu") -> None:
         self.suppress_tokens = torch.tensor(list(suppress_tokens), device=device)
 
     @add_start_docstrings(LOGITS_PROCESSOR_INPUTS_DOCSTRING)
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
         vocab_tensor = torch.arange(scores.shape[-1], device=scores.device)
         suppress_token_mask = torch.isin(vocab_tensor, self.suppress_tokens)
-        scores = torch.where(suppress_token_mask, -float("inf"), scores)
-        return scores
+        return torch.where(suppress_token_mask, -float("inf"), scores)
 
 
 class ForceTokensLogitsProcessor(LogitsProcessor):
-    r"""
-    This processor takes a list of pairs of integers which indicates a mapping from generation indices to token
+    r"""This processor takes a list of pairs of integers which indicates a mapping from generation indices to token
     indices that will be forced before generation. The processor will set their log probs to `inf` so that they are
     sampled at their corresponding index. Originally created for
     [Whisper](https://huggingface.co/docs/transformers/model_doc/whisper).
     """
 
-    def __init__(self, force_token_map: List[List[int]], _has_warned: Optional[bool] = False):
+    def __init__(self, force_token_map: list[list[int]], _has_warned: bool | None = False) -> None:
         self.force_token_map = dict(force_token_map)
         if not _has_warned:
             # TODO(Sanchit): remove this processor entirely in v4.40
@@ -1867,9 +1863,7 @@ class ForceTokensLogitsProcessor(LogitsProcessor):
 
 
 class WhisperTimeStampLogitsProcessor(LogitsProcessor):
-    r"""
-
-    [`LogitsProcessor`] that modifies the logits for the generation of timestamps in the transcription. When the input
+    r"""[`LogitsProcessor`] that modifies the logits for the generation of timestamps in the transcription. When the input
     tokens are at a specific threshold, the processor sets the scores to negative infinity. The processor makes sure
     that timestamp tokens appear in pairs, by masking out the logits that would break this pairing pattern. This is
     done to maintain the consistency and structure of generated timestamps. It also ensures that when the predicted
@@ -1881,6 +1875,7 @@ class WhisperTimeStampLogitsProcessor(LogitsProcessor):
     See [the paper](https://arxiv.org/abs/2212.04356) for more information.
 
     Args:
+    ----
         generate_config (`GenerateConfig`):
             The generate config used to generate the output. The following parameters are required:
                 eos_token_id (`int`, *optional*, defaults to 50257):
@@ -1894,6 +1889,7 @@ class WhisperTimeStampLogitsProcessor(LogitsProcessor):
         _detect_timestamp_from_logprob (`bool`, *optional*): Whether timestamps can be predicted from logprobs over all timestamps.
 
     Examples:
+    --------
     ``` python
     >>> import torch
     >>> from transformers import AutoProcessor, WhisperForConditionalGeneration, GenerationConfig
@@ -1920,35 +1916,32 @@ class WhisperTimeStampLogitsProcessor(LogitsProcessor):
     >>> print("Transcription:", transcription)
     Transcription:  He has grave doubts whether Sir Frederick Layton's work is really Greek after all and can
     ```
+
     """
 
     def __init__(
         self,
         generate_config,
-        begin_index: Optional[int] = None,
-        _detect_timestamp_from_logprob: Optional[bool] = None,
-    ):  # support for the kwargs
+        begin_index: int | None = None,
+        _detect_timestamp_from_logprob: bool | None = None,
+    ) -> None:  # support for the kwargs
         self.no_timestamps_token_id = generate_config.no_timestamps_token_id
         self.timestamp_begin = generate_config.no_timestamps_token_id + 1
         self.eos_token_id = generate_config.eos_token_id or generate_config.bos_token_id
 
         # this variable is mostly just used for testing
         self._detect_timestamp_from_logprob = (
-            _detect_timestamp_from_logprob
-            if _detect_timestamp_from_logprob is not None
-            else getattr(generate_config, "_detect_timestamp_from_logprob", True)
+            _detect_timestamp_from_logprob if _detect_timestamp_from_logprob is not None else getattr(generate_config, "_detect_timestamp_from_logprob", True)
         )
 
-        num_forced_ids = (
-            len(generate_config.forced_decoder_ids) if generate_config.forced_decoder_ids is not None else 0
-        )
+        num_forced_ids = len(generate_config.forced_decoder_ids) if generate_config.forced_decoder_ids is not None else 0
         self.begin_index = begin_index or (num_forced_ids + 1)
 
         self.max_initial_timestamp_index = getattr(generate_config, "max_initial_timestamp_index", None)
         # TODO(Patrick): Make sure that official models have max_initial_timestamp_index set to 50
         # self.max_initial_timestamp_index = 50
 
-    def set_begin_index(self, begin_index):
+    def set_begin_index(self, begin_index) -> None:
         self.begin_index = begin_index
 
     @add_start_docstrings(LOGITS_PROCESSOR_INPUTS_DOCSTRING)
@@ -2003,9 +1996,9 @@ class WhisperTimeStampLogitsProcessor(LogitsProcessor):
 
 
 class WhisperNoSpeechDetection(LogitsProcessor):
-    r"""This processor can be used to detect silence when using Whisper. It should take as input unprocessed logits to follow the original implementation"""
+    r"""This processor can be used to detect silence when using Whisper. It should take as input unprocessed logits to follow the original implementation."""
 
-    def __init__(self, no_speech_token: int, begin_index: int, scores_is_logprobs: bool = False):
+    def __init__(self, no_speech_token: int, begin_index: int, scores_is_logprobs: bool = False) -> None:
         self.no_speech_token = no_speech_token
         # offset between <start-of-transcription> token, <SOT>, in paper and first generated token
         # is equal to the position of the first generated token index
@@ -2020,10 +2013,10 @@ class WhisperNoSpeechDetection(LogitsProcessor):
         self.model = None
         self.inputs = None
 
-    def set_model(self, model):
+    def set_model(self, model) -> None:
         self.model = model
 
-    def set_inputs(self, inputs):
+    def set_inputs(self, inputs) -> None:
         self.inputs = {**self.model.prepare_inputs_for_generation(**inputs), **inputs}
         self.inputs["input_features"] = self.inputs.pop("inputs")
 
@@ -2031,7 +2024,7 @@ class WhisperNoSpeechDetection(LogitsProcessor):
     def no_speech_prob(self):
         return self._no_speech_prob
 
-    def set_begin_index(self, begin_index):
+    def set_begin_index(self, begin_index) -> None:
         self.begin_index = begin_index
 
     @add_start_docstrings(LOGITS_PROCESSOR_INPUTS_DOCSTRING)
@@ -2049,10 +2042,7 @@ class WhisperNoSpeechDetection(LogitsProcessor):
             else:
                 no_speech_scores = scores
 
-            if is_scores_logprobs:
-                probs = no_speech_scores.exp()
-            else:
-                probs = no_speech_scores.float().softmax(dim=-1)
+            probs = no_speech_scores.exp() if is_scores_logprobs else no_speech_scores.float().softmax(dim=-1)
 
             self._no_speech_prob = probs[:, self.no_speech_token]
 
@@ -2060,8 +2050,7 @@ class WhisperNoSpeechDetection(LogitsProcessor):
 
 
 class ClassifierFreeGuidanceLogitsProcessor(LogitsProcessor):
-    r"""
-    [`LogitsProcessor`] for classifier free guidance (CFG). The scores are split over the batch dimension,
+    r"""[`LogitsProcessor`] for classifier free guidance (CFG). The scores are split over the batch dimension,
     where the first half correspond to the conditional logits (predicted from the input prompt) and the second half
     correspond to the unconditional logits (predicted from an empty or 'null' prompt). The processor computes a
     weighted average across the conditional and unconditional logits, parameterised by the `guidance_scale`.
@@ -2076,13 +2065,14 @@ class ClassifierFreeGuidanceLogitsProcessor(LogitsProcessor):
     </Tip>
 
     Args:
+    ----
         guidance_scale (float):
             The guidance scale for classifier free guidance (CFG). CFG is enabled by setting `guidance_scale > 1`.
             Higher guidance scale encourages the model to generate samples that are more closely linked to the input
             prompt, usually at the expense of poorer quality.
 
     Examples:
-
+    --------
     ```python
     >>> from transformers import AutoProcessor, MusicgenForConditionalGeneration
 
@@ -2096,36 +2086,34 @@ class ClassifierFreeGuidanceLogitsProcessor(LogitsProcessor):
     ... )
     >>> audio_values = model.generate(**inputs, do_sample=True, guidance_scale=3, max_new_tokens=256)
     ```
+
     """
 
-    def __init__(self, guidance_scale):
+    def __init__(self, guidance_scale) -> None:
         if guidance_scale > 1:
             self.guidance_scale = guidance_scale
         else:
-            raise ValueError(
-                "Require guidance scale >1 to use the classifier free guidance processor, got guidance scale "
-                f"{guidance_scale}."
-            )
+            msg = "Require guidance scale >1 to use the classifier free guidance processor, got guidance scale " f"{guidance_scale}."
+            raise ValueError(msg)
 
     @add_start_docstrings(LOGITS_PROCESSOR_INPUTS_DOCSTRING)
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
         # simple check to make sure we have compatible batch sizes between our
         # logits scores (cond + uncond) and input ids (cond only)
         if scores.shape[0] != 2 * input_ids.shape[0]:
-            raise ValueError(
+            msg = (
                 f"Logits should have twice the batch size of the input ids, the first half of batches corresponding to "
                 f"the conditional inputs, and the second half of batches corresponding to the unconditional inputs. Got "
                 f"batch size {scores.shape[0]} for the logits and {input_ids.shape[0]} for the input ids."
             )
+            raise ValueError(msg)
         unguided_bsz = scores.shape[0] // 2
         cond_logits, uncond_logits = scores.split(unguided_bsz, dim=0)
-        scores_processed = uncond_logits + (cond_logits - uncond_logits) * self.guidance_scale
-        return scores_processed
+        return uncond_logits + (cond_logits - uncond_logits) * self.guidance_scale
 
 
 class AlternatingCodebooksLogitsProcessor(LogitsProcessor):
-    r"""
-    [`LogitsProcessor`] enforcing alternated generation between the two codebooks of Bark.
+    r"""[`LogitsProcessor`] enforcing alternated generation between the two codebooks of Bark.
 
     <Tip warning={true}>
 
@@ -2136,17 +2124,20 @@ class AlternatingCodebooksLogitsProcessor(LogitsProcessor):
     </Tip>
 
     Args:
+    ----
         input_start_len (`int`):
             The length of the initial input sequence.
         semantic_vocab_size (`int`):
             Vocabulary size of the semantic part, i.e number of tokens associated to the semantic vocabulary.
         codebook_size (`int`):
             Number of tokens associated to the codebook.
+
     """
 
-    def __init__(self, input_start_len: int, semantic_vocab_size: int, codebook_size: int):
+    def __init__(self, input_start_len: int, semantic_vocab_size: int, codebook_size: int) -> None:
         if not isinstance(input_start_len, int) or input_start_len < 0:
-            raise ValueError(f"`input_starting_length` has to be a non-negative integer, but is {input_start_len}")
+            msg = f"`input_starting_length` has to be a non-negative integer, but is {input_start_len}"
+            raise ValueError(msg)
 
         self.input_start_len = input_start_len
         self.semantic_vocab_size = semantic_vocab_size
@@ -2169,14 +2160,14 @@ class AlternatingCodebooksLogitsProcessor(LogitsProcessor):
 
 
 class UnbatchedClassifierFreeGuidanceLogitsProcessor(LogitsProcessor):
-    r"""
-    Logits processor for Classifier-Free Guidance (CFG). The processors computes a weighted average across scores
+    r"""Logits processor for Classifier-Free Guidance (CFG). The processors computes a weighted average across scores
     from prompt conditional and prompt unconditional (or negative) logits, parameterized by the `guidance_scale`.
     The unconditional scores are computed internally by prompting `model` with the `unconditional_ids` branch.
 
     See [the paper](https://arxiv.org/abs/2306.17806) for more information.
 
     Args:
+    ----
         guidance_scale (`float`):
             The guidance scale for classifier free guidance (CFG). CFG is enabled by setting `guidance_scale != 1`.
             Higher guidance scale encourages the model to generate samples that are more closely linked to the input
@@ -2195,7 +2186,7 @@ class UnbatchedClassifierFreeGuidanceLogitsProcessor(LogitsProcessor):
 
 
     Examples:
-
+    --------
     ```python
     >>> from transformers import AutoTokenizer, AutoModelForCausalLM
 
@@ -2218,16 +2209,17 @@ class UnbatchedClassifierFreeGuidanceLogitsProcessor(LogitsProcessor):
     >>> tokenizer.batch_decode(out, skip_special_tokens=True)[0]
     "Today, a dragon flew over Paris, France, and I'm very happy to be here. I"
     ```
+
     """
 
     def __init__(
         self,
         guidance_scale: float,
         model,
-        unconditional_ids: Optional[torch.LongTensor] = None,
-        unconditional_attention_mask: Optional[torch.LongTensor] = None,
-        use_cache: Optional[bool] = True,
-    ):
+        unconditional_ids: torch.LongTensor | None = None,
+        unconditional_attention_mask: torch.LongTensor | None = None,
+        use_cache: bool | None = True,
+    ) -> None:
         self.guidance_scale = guidance_scale
         self.model = model
         self.unconditional_context = {
@@ -2243,9 +2235,7 @@ class UnbatchedClassifierFreeGuidanceLogitsProcessor(LogitsProcessor):
             if self.unconditional_context["input_ids"] is None:
                 self.unconditional_context["input_ids"] = input_ids[:, -1:]
             if self.unconditional_context["attention_mask"] is None:
-                self.unconditional_context["attention_mask"] = torch.ones_like(
-                    self.unconditional_context["input_ids"], dtype=torch.long
-                )
+                self.unconditional_context["attention_mask"] = torch.ones_like(self.unconditional_context["input_ids"], dtype=torch.long)
             input_ids = self.unconditional_context["input_ids"]
             attention_mask = self.unconditional_context["attention_mask"]
             self.unconditional_context["first_pass"] = False
@@ -2282,8 +2272,7 @@ class UnbatchedClassifierFreeGuidanceLogitsProcessor(LogitsProcessor):
         logits = self.get_unconditional_logits(input_ids)
 
         unconditional_logits = torch.nn.functional.log_softmax(logits[:, -1], dim=-1)
-        scores_processed = self.guidance_scale * (scores - unconditional_logits) + unconditional_logits
-        return scores_processed
+        return self.guidance_scale * (scores - unconditional_logits) + unconditional_logits
 
 
 class BarkEosPrioritizerLogitsProcessor(LogitsProcessor):
@@ -2297,13 +2286,15 @@ class BarkEosPrioritizerLogitsProcessor(LogitsProcessor):
     </Tip>
 
     Args:
+    ----
         eos_token_id (`Union[int, List[int], torch.Tensor]`):
             The id(s) of the *end-of-sequence* token.
         min_eos_p (`float`, *optional*):
             Minimum end of speech threshold.
+
     """
 
-    def __init__(self, eos_token_id: Union[int, List[int], torch.Tensor], min_eos_p: float, device: str = "cpu"):
+    def __init__(self, eos_token_id: int | list[int] | torch.Tensor, min_eos_p: float, device: str = "cpu") -> None:
         if not isinstance(eos_token_id, torch.Tensor):
             if isinstance(eos_token_id, int):
                 eos_token_id = [eos_token_id]
@@ -2311,10 +2302,12 @@ class BarkEosPrioritizerLogitsProcessor(LogitsProcessor):
         self.eos_token_id = eos_token_id
 
         if torch.is_floating_point(eos_token_id) or (eos_token_id < 0).any():
-            raise ValueError(f"`eos_token_id` has to be a list of positive integers, but is {eos_token_id}")
+            msg = f"`eos_token_id` has to be a list of positive integers, but is {eos_token_id}"
+            raise ValueError(msg)
 
         if min_eos_p is not None and min_eos_p <= 0:
-            raise ValueError(f"`min_eos_p` has to be a positive float, but is {min_eos_p}")
+            msg = f"`min_eos_p` has to be a positive float, but is {min_eos_p}"
+            raise ValueError(msg)
         self.min_eos_p = min_eos_p
 
     @add_start_docstrings(LOGITS_PROCESSOR_INPUTS_DOCSTRING)
@@ -2334,8 +2327,7 @@ class BarkEosPrioritizerLogitsProcessor(LogitsProcessor):
 
 
 class WatermarkLogitsProcessor(LogitsProcessor):
-    r"""
-    Logits processor for watermarking generated text. The processor modifies model output scores by adding a small bias to
+    r"""Logits processor for watermarking generated text. The processor modifies model output scores by adding a small bias to
     randomized set of "green" tokens before generating the next token. "Green" tokens selection process depends on the
     `seeding_scheme` used. The code was based on the [original repo](https://github.com/jwkirchenbauer/lm-watermarking/tree/main).
 
@@ -2344,6 +2336,7 @@ class WatermarkLogitsProcessor(LogitsProcessor):
     See [the paper](https://arxiv.org/abs/2306.04634) for more information.
 
     Args:
+    ----
         vocab_size (`int`):
             The model tokenizer's vocab_size. Used to calculate "green" tokens ratio.
         device (`str`):
@@ -2367,7 +2360,7 @@ class WatermarkLogitsProcessor(LogitsProcessor):
             The number of previous tokens to use when setting the seed.
 
     Examples:
-
+    --------
     ```python
     >>> from transformers import AutoTokenizer, AutoModelForCausalLM, WatermarkingConfig
 
@@ -2393,6 +2386,7 @@ class WatermarkLogitsProcessor(LogitsProcessor):
     >>> detection_preds
     array([ True])
     ```
+
     """
 
     def __init__(
@@ -2404,13 +2398,13 @@ class WatermarkLogitsProcessor(LogitsProcessor):
         hashing_key: int = 15485863,
         seeding_scheme: str = "lefthash",
         context_width: int = 1,
-    ):
+    ) -> None:
         if seeding_scheme not in ["selfhash", "lefthash"]:
-            raise ValueError(f"seeding_scheme has to be one of [`selfhash`, `lefthash`], but found {seeding_scheme}")
+            msg = f"seeding_scheme has to be one of [`selfhash`, `lefthash`], but found {seeding_scheme}"
+            raise ValueError(msg)
         if greenlist_ratio >= 1.0 or greenlist_ratio <= 0.0:
-            raise ValueError(
-                f"greenlist_ratio has be in range between 0.0 and 1.0, exclusively. but found {greenlist_ratio}"
-            )
+            msg = f"greenlist_ratio has be in range between 0.0 and 1.0, exclusively. but found {greenlist_ratio}"
+            raise ValueError(msg)
 
         self.vocab_size = vocab_size
         self.greenlist_size = int(self.vocab_size * greenlist_ratio)
@@ -2424,7 +2418,7 @@ class WatermarkLogitsProcessor(LogitsProcessor):
         self.table_size = 1_000_003
         self.fixed_table = torch.randperm(self.table_size, generator=self.rng, device=device)
 
-    def set_seed(self, input_seq: torch.LongTensor):
+    def set_seed(self, input_seq: torch.LongTensor) -> None:
         input_seq = input_seq[-self.context_width :]
         if self.seeding_scheme == "selfhash":
             a = self.fixed_table[input_seq % self.table_size] + 1
@@ -2437,12 +2431,10 @@ class WatermarkLogitsProcessor(LogitsProcessor):
     def _get_greenlist_ids(self, input_seq: torch.LongTensor) -> torch.LongTensor:
         self.set_seed(input_seq)
         vocab_permutation = torch.randperm(self.vocab_size, device=input_seq.device, generator=self.rng)
-        greenlist_ids = vocab_permutation[: self.greenlist_size]
-        return greenlist_ids
+        return vocab_permutation[: self.greenlist_size]
 
     def _score_rejection_sampling(self, input_seq: torch.LongTensor, scores: torch.FloatTensor) -> torch.LongTensor:
-        """
-        Generate greenlist based on current candidate next token. Reject and move on if necessary.
+        """Generate greenlist based on current candidate next token. Reject and move on if necessary.
         Runs for a fixed number of steps only for efficiency, since the methods is not batched.
         """
         final_greenlist = []
@@ -2458,17 +2450,13 @@ class WatermarkLogitsProcessor(LogitsProcessor):
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
         if input_ids.shape[-1] < self.context_width:
             logger.warning(
-                f"`input_ids` should have at least `{self.context_width}` tokens but has {input_ids.shape[-1]}. "
-                "The seeding will be skipped for this generation step!"
+                f"`input_ids` should have at least `{self.context_width}` tokens but has {input_ids.shape[-1]}. " "The seeding will be skipped for this generation step!"
             )
             return scores
 
         scores_processed = scores.clone()
         for b_idx, input_seq in enumerate(input_ids):
-            if self.seeding_scheme == "selfhash":
-                greenlist_ids = self._score_rejection_sampling(input_seq, scores[b_idx])
-            else:
-                greenlist_ids = self._get_greenlist_ids(input_seq)
+            greenlist_ids = self._score_rejection_sampling(input_seq, scores[b_idx]) if self.seeding_scheme == "selfhash" else self._get_greenlist_ids(input_seq)
             scores_processed[b_idx, greenlist_ids] = scores_processed[b_idx, greenlist_ids] + self.bias
 
         return scores_processed

@@ -1,4 +1,3 @@
-# coding=utf-8
 # Copyright 2024 The HuggingFace Inc. team
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,14 +15,12 @@
 import collections
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Dict, Optional, Union
 
 import numpy as np
 
 from ..configuration_utils import PretrainedConfig
 from ..utils import is_torch_available, logging
 from .configuration_utils import WatermarkingConfig
-
 
 if is_torch_available():
     import torch
@@ -36,10 +33,10 @@ logger = logging.get_logger(__name__)
 
 @dataclass
 class WatermarkDetectorOutput:
-    """
-    Outputs of a watermark detector.
+    """Outputs of a watermark detector.
 
     Args:
+    ----
         num_tokens_scored (np.array of shape (batch_size)):
             Array containing the number of tokens scored for each element in the batch.
         num_green_tokens (np.array of shape (batch_size)):
@@ -56,6 +53,7 @@ class WatermarkDetectorOutput:
             Array containing boolean predictions whether a text is machine-generated for each element in the batch.
         confidence (np.array of shape (batch_size)), *optional*:
             Array containing confidence scores of a text being machine-generated for each element in the batch.
+
     """
 
     num_tokens_scored: np.array = None
@@ -63,13 +61,12 @@ class WatermarkDetectorOutput:
     green_fraction: np.array = None
     z_score: np.array = None
     p_value: np.array = None
-    prediction: Optional[np.array] = None
-    confidence: Optional[np.array] = None
+    prediction: np.array | None = None
+    confidence: np.array | None = None
 
 
 class WatermarkDetector:
-    r"""
-    Detector for detection of watermark generated text. The detector needs to be given the exact same settings that were
+    r"""Detector for detection of watermark generated text. The detector needs to be given the exact same settings that were
     given during text generation to replicate the watermark greenlist generation and so detect the watermark. This includes
     the correct device that was used during text generation, the correct watermarking arguments and the correct tokenizer vocab size.
     The code was based on the [original repo](https://github.com/jwkirchenbauer/lm-watermarking/tree/main).
@@ -77,6 +74,7 @@ class WatermarkDetector:
     See [the paper](https://arxiv.org/abs/2306.04634) for more information.
 
     Args:
+    ----
         model_config (`PretrainedConfig`):
             The model config that will be used to get model specific arguments used when generating.
         device (`str`):
@@ -89,7 +87,7 @@ class WatermarkDetector:
             The max size to be used for LRU caching of seeding/sampling algorithms called for every token.
 
     Examples:
-
+    --------
     ```python
     >>> from transformers import AutoTokenizer, AutoModelForCausalLM, WatermarkDetector, WatermarkingConfig
 
@@ -117,27 +115,24 @@ class WatermarkDetector:
     >>> detection_out.prediction
     array([False,  False])
     ```
+
     """
 
     def __init__(
         self,
         model_config: PretrainedConfig,
         device: str,
-        watermarking_config: Union[WatermarkingConfig, Dict],
+        watermarking_config: WatermarkingConfig | dict,
         ignore_repeated_ngrams: bool = False,
         max_cache_size: int = 128,
-    ):
+    ) -> None:
         if isinstance(watermarking_config, WatermarkingConfig):
             watermarking_config = watermarking_config.to_dict()
 
-        self.bos_token_id = (
-            model_config.bos_token_id if not model_config.is_encoder_decoder else model_config.decoder_start_token_id
-        )
+        self.bos_token_id = model_config.bos_token_id if not model_config.is_encoder_decoder else model_config.decoder_start_token_id
         self.greenlist_ratio = watermarking_config["greenlist_ratio"]
         self.ignore_repeated_ngrams = ignore_repeated_ngrams
-        self.processor = WatermarkLogitsProcessor(
-            vocab_size=model_config.vocab_size, device=device, **watermarking_config
-        )
+        self.processor = WatermarkLogitsProcessor(vocab_size=model_config.vocab_size, device=device, **watermarking_config)
 
         # Expensive re-seeding and sampling is cached.
         self._get_ngram_score_cached = lru_cache(maxsize=max_cache_size)(self._get_ngram_score)
@@ -158,7 +153,7 @@ class WatermarkDetector:
         for batch_idx in range(ngram_tensors.shape[0]):
             frequencies_table = collections.Counter(ngram_tensors[batch_idx])
             ngram_to_watermark_lookup = {}
-            for ngram_example in frequencies_table.keys():
+            for ngram_example in frequencies_table:
                 prefix = ngram_example if selfhash else ngram_example[:-1]
                 target = ngram_example[-1]
                 ngram_to_watermark_lookup[ngram_example] = self._get_ngram_score_cached(prefix, target)
@@ -171,8 +166,7 @@ class WatermarkDetector:
             else:
                 num_tokens_scored_batch[batch_idx] = sum(frequencies_table.values())
                 green_token_count_batch[batch_idx] = sum(
-                    freq * outcome
-                    for freq, outcome in zip(frequencies_table.values(), ngram_to_watermark_lookup.values())
+                    freq * outcome for freq, outcome in zip(frequencies_table.values(), ngram_to_watermark_lookup.values(), strict=False)
                 )
         return num_tokens_scored_batch, green_token_count_batch
 
@@ -180,8 +174,7 @@ class WatermarkDetector:
         expected_count = self.greenlist_ratio
         numer = green_token_count - expected_count * total_num_tokens
         denom = np.sqrt(total_num_tokens * expected_count * (1 - expected_count))
-        z = numer / denom
-        return z
+        return numer / denom
 
     def _compute_pval(self, x, loc=0, scale=1):
         z = (x - loc) / scale
@@ -192,9 +185,9 @@ class WatermarkDetector:
         input_ids: torch.LongTensor,
         z_threshold: float = 3.0,
         return_dict: bool = False,
-    ) -> Union[WatermarkDetectorOutput, np.array]:
-        """
-                Args:
+    ) -> WatermarkDetectorOutput | np.array:
+        """Args:
+        ----
                 input_ids (`torch.LongTensor`):
                     The watermark generated text. It is advised to remove the prompt, which can affect the detection.
                 z_threshold (`Dict`, *optional*, defaults to `3.0`):
@@ -208,16 +201,13 @@ class WatermarkDetector:
                     if `return_dict=True` otherwise a `np.array`.
 
         """
-
         # Let's assume that if one batch start with `bos`, all batched also do
         if input_ids[0, 0] == self.bos_token_id:
             input_ids = input_ids[:, 1:]
 
         if input_ids.shape[-1] - self.processor.context_width < 1:
-            raise ValueError(
-                f"Must have at least `1` token to score after the first "
-                f"min_prefix_len={self.processor.context_width} tokens required by the seeding scheme."
-            )
+            msg = f"Must have at least `1` token to score after the first " f"min_prefix_len={self.processor.context_width} tokens required by the seeding scheme."
+            raise ValueError(msg)
 
         num_tokens_scored, green_token_count = self._score_ngrams_in_passage(input_ids)
         z_score = self._compute_z_score(green_token_count, num_tokens_scored)

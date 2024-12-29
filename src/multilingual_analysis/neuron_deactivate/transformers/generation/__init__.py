@@ -16,7 +16,6 @@ from typing import TYPE_CHECKING
 
 from ..utils import OptionalDependencyNotAvailable, _LazyModule, is_flax_available, is_tf_available, is_torch_available
 
-
 _import_structure = {
     "configuration_utils": ["GenerationConfig", "GenerationMode", "WatermarkingConfig"],
     "streamers": ["TextIteratorStreamer", "TextStreamer"],
@@ -24,7 +23,7 @@ _import_structure = {
 
 try:
     if not is_torch_available():
-        raise OptionalDependencyNotAvailable()
+        raise OptionalDependencyNotAvailable
 except OptionalDependencyNotAvailable:
     pass
 else:
@@ -114,7 +113,7 @@ else:
 
 try:
     if not is_tf_available():
-        raise OptionalDependencyNotAvailable()
+        raise OptionalDependencyNotAvailable
 except OptionalDependencyNotAvailable:
     pass
 else:
@@ -151,7 +150,7 @@ else:
 
 try:
     if not is_flax_available():
-        raise OptionalDependencyNotAvailable()
+        raise OptionalDependencyNotAvailable
 except OptionalDependencyNotAvailable:
     pass
 else:
@@ -184,7 +183,7 @@ if TYPE_CHECKING:
 
     try:
         if not is_torch_available():
-            raise OptionalDependencyNotAvailable()
+            raise OptionalDependencyNotAvailable
     except OptionalDependencyNotAvailable:
         pass
     else:
@@ -260,7 +259,7 @@ if TYPE_CHECKING:
 
     try:
         if not is_tf_available():
-            raise OptionalDependencyNotAvailable()
+            raise OptionalDependencyNotAvailable
     except OptionalDependencyNotAvailable:
         pass
     else:
@@ -297,7 +296,7 @@ if TYPE_CHECKING:
 
     try:
         if not is_flax_available():
-            raise OptionalDependencyNotAvailable()
+            raise OptionalDependencyNotAvailable
     except OptionalDependencyNotAvailable:
         pass
     else:

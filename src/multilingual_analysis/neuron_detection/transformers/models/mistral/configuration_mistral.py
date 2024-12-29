@@ -1,4 +1,3 @@
-# coding=utf-8
 # Copyright 2023 Mistral AI and the HuggingFace Inc. team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,18 +11,16 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Mistral model configuration"""
+"""Mistral model configuration."""
 
 from ...configuration_utils import PretrainedConfig
 from ...utils import logging
-
 
 logger = logging.get_logger(__name__)
 
 
 class MistralConfig(PretrainedConfig):
-    r"""
-    This is the configuration class to store the configuration of a [`MistralModel`]. It is used to instantiate an
+    r"""This is the configuration class to store the configuration of a [`MistralModel`]. It is used to instantiate an
     Mistral model according to the specified arguments, defining the model architecture. Instantiating a configuration
     with the defaults will yield a similar configuration to that of the Mistral-7B-v0.1 or Mistral-7B-Instruct-v0.1.
 
@@ -35,6 +32,7 @@ class MistralConfig(PretrainedConfig):
 
 
     Args:
+    ----
         vocab_size (`int`, *optional*, defaults to 32000):
             Vocabulary size of the Mistral model. Defines the number of different tokens that can be represented by the
             `inputs_ids` passed when calling [`MistralModel`]
@@ -93,7 +91,9 @@ class MistralConfig(PretrainedConfig):
 
     >>> # Accessing the model configuration
     >>> configuration = model.config
-    ```"""
+    ```
+
+    """
 
     model_type = "mistral"
     keys_to_ignore_at_inference = ["past_key_values"]
@@ -120,7 +120,7 @@ class MistralConfig(PretrainedConfig):
         sliding_window=4096,
         attention_dropout=0.0,
         **kwargs,
-    ):
+    ) -> None:
         self.vocab_size = vocab_size
         self.max_position_embeddings = max_position_embeddings
         self.hidden_size = hidden_size

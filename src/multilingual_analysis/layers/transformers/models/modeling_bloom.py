@@ -1,4 +1,3 @@
-# coding=utf-8
 # Copyright 2022 HuggingFace Inc. team and BigScience workshop.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,7 +15,6 @@
 
 import math
 import warnings
-from typing import Optional, Tuple, Union
 
 import torch
 import torch.utils.checkpoint
@@ -35,8 +33,6 @@ from ...modeling_outputs import (
 from ...modeling_utils import PreTrainedModel
 from ...utils import logging
 from .configuration_bloom import BloomConfig
-import pdb
-
 
 logger = logging.get_logger(__name__)
 
@@ -54,12 +50,8 @@ BLOOM_PRETRAINED_MODEL_ARCHIVE_LIST = [
 ]
 
 
-def _make_causal_mask(
-    input_ids_shape: torch.Size, device: torch.device, past_key_values_length: int
-) -> torch.BoolTensor:
-    """
-    Make causal mask used for self-attention.
-    """
+def _make_causal_mask(input_ids_shape: torch.Size, device: torch.device, past_key_values_length: int) -> torch.BoolTensor:
+    """Make causal mask used for self-attention."""
     batch_size, target_length = input_ids_shape
     mask = torch.empty((target_length, target_length + past_key_values_length), dtype=torch.bool, device=device)
     # ONNX doesn't support `torch.Tensor.triu` properly, thus we use this workaround
@@ -69,14 +61,11 @@ def _make_causal_mask(
     if past_key_values_length > 0:
         mask[:, :past_key_values_length] = False
 
-    expanded_mask = mask[None, None, :, :].expand(batch_size, 1, target_length, target_length + past_key_values_length)
-    return expanded_mask
+    return mask[None, None, :, :].expand(batch_size, 1, target_length, target_length + past_key_values_length)
 
 
 def _expand_mask(mask: torch.Tensor, tgt_length: int) -> torch.BoolTensor:
-    """
-    Expands attention_mask from `[batch_size, src_length]` to `[batch_size, 1, tgt_length, src_length]`.
-    """
+    """Expands attention_mask from `[batch_size, src_length]` to `[batch_size, 1, tgt_length, src_length]`."""
     batch_size, src_length = mask.shape
     tgt_length = tgt_length if tgt_length is not None else src_length
 
@@ -85,14 +74,14 @@ def _expand_mask(mask: torch.Tensor, tgt_length: int) -> torch.BoolTensor:
 
 
 def build_alibi_tensor(attention_mask: torch.Tensor, num_heads: int, dtype: torch.dtype) -> torch.Tensor:
-    """
-    Link to paper: https://arxiv.org/abs/2108.12409 Alibi tensor is not causal as the original paper mentions, it
+    """Link to paper: https://arxiv.org/abs/2108.12409 Alibi tensor is not causal as the original paper mentions, it
     relies on a translation invariance of softmax for quick implementation: with l being a tensor, and a fixed value
     `softmax(l+a) = softmax(l)`. Based on
     https://github.com/ofirpress/attention_with_linear_biases/blob/a35aaca144e0eb6b789dfcb46784c4b8e31b7983/fairseq/models/transformer.py#L742
     TODO @thomasw21 this doesn't work as nicely due to the masking strategy, and so masking varies slightly.
 
     Args:
+    ----
     Returns tensor shaped (batch_size * num_heads, 1, max_seq_len)
         attention_mask (`torch.Tensor`):
             Token-wise attention mask, this should be of shape (batch_size, max_seq_len).
@@ -100,19 +89,16 @@ def build_alibi_tensor(attention_mask: torch.Tensor, num_heads: int, dtype: torc
             number of heads
         dtype (`torch.dtype`, *optional*, default=`torch.bfloat16`):
             dtype of the output tensor
+
     """
     batch_size, seq_length = attention_mask.shape
     closest_power_of_2 = 2 ** math.floor(math.log2(num_heads))
-    base = torch.tensor(
-        2 ** (-(2 ** -(math.log2(closest_power_of_2) - 3))), device=attention_mask.device, dtype=torch.float32
-    )
+    base = torch.tensor(2 ** (-(2 ** -(math.log2(closest_power_of_2) - 3))), device=attention_mask.device, dtype=torch.float32)
     powers = torch.arange(1, 1 + closest_power_of_2, device=attention_mask.device, dtype=torch.int32)
     slopes = torch.pow(base, powers)
 
     if closest_power_of_2 != num_heads:
-        extra_base = torch.tensor(
-            2 ** (-(2 ** -(math.log2(2 * closest_power_of_2) - 3))), device=attention_mask.device, dtype=torch.float32
-        )
+        extra_base = torch.tensor(2 ** (-(2 ** -(math.log2(2 * closest_power_of_2) - 3))), device=attention_mask.device, dtype=torch.float32)
         num_remaining_heads = min(closest_power_of_2, num_heads - closest_power_of_2)
         extra_powers = torch.arange(1, 1 + 2 * num_remaining_heads, 2, device=attention_mask.device, dtype=torch.int32)
         slopes = torch.cat([slopes, torch.pow(extra_base, extra_powers)], dim=0)
@@ -129,10 +115,10 @@ def build_alibi_tensor(attention_mask: torch.Tensor, num_heads: int, dtype: torc
 
 
 def dropout_add(x: torch.Tensor, residual: torch.Tensor, prob: float, training: bool) -> torch.Tensor:
-    """
-    Dropout add function
+    """Dropout add function.
 
     Args:
+    ----
         x (`torch.tensor`, *required*):
             input tensor
         residual (`torch.tensor`, *required*):
@@ -141,34 +127,36 @@ def dropout_add(x: torch.Tensor, residual: torch.Tensor, prob: float, training: 
             dropout probability
         training (`bool`, *required*):
             training mode
+
     """
     out = F.dropout(x, p=prob, training=training)
-    out = residual + out
-    return out
+    return residual + out
 
 
 def bloom_gelu_forward(x: torch.Tensor) -> torch.Tensor:
-    """
-    Custom bias GELU function. Adapted from Megatron-DeepSpeed code. Here we use a simple implementation (inference) to
+    """Custom bias GELU function. Adapted from Megatron-DeepSpeed code. Here we use a simple implementation (inference) to
     make the model jitable.
 
     Args:
+    ----
         x (`torch.tensor`, *required*):
             input hidden states
+
     """
     return x * 0.5 * (1.0 + torch.tanh(0.79788456 * x * (1 + 0.044715 * x * x)))
 
 
 def bloom_gelu_back(g: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
-    """
-    gradient of tanh approximation of gelu gradient of actual gelu is: 0.5 * (1. + torch.erf(x * 0.70710678)) +
-    0.3989423 * x * torch.exp(-0.5 * x * x)
+    """Gradient of tanh approximation of gelu gradient of actual gelu is: 0.5 * (1. + torch.erf(x * 0.70710678)) +
+    0.3989423 * x * torch.exp(-0.5 * x * x).
 
     Args:
+    ----
         g (`torch.tensor`, *required*):
             gradient output tensor
         x (`torch.tensor`, *required*):
             input tensor
+
     """
     x = x[0]  # x is a tuple of 1 element, needs to unpack it first
     tanh_out = torch.tanh(0.79788456 * x * (1 + 0.044715 * x * x))
@@ -186,20 +174,18 @@ class GeLUFunction(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_output: torch.Tensor) -> torch.Tensor:
         input = ctx.saved_tensors
-        tmp = bloom_gelu_back(grad_output, input)
-        return tmp
+        return bloom_gelu_back(grad_output, input)
 
 
 class BloomGelu(nn.Module):
-    """
-    BloomBiasGelu wrapper function that make use of the simple function on inference mode to make the model
+    """BloomBiasGelu wrapper function that make use of the simple function on inference mode to make the model
     torchscriptable and use the autograd function in training mode to get the accurate results of the gradients Partly
-    copied from Megatron-DeepSpeed code and adapted for our needs
+    copied from Megatron-DeepSpeed code and adapted for our needs.
 
     See here why autograd functions are not torchscriptable: https://github.com/pytorch/pytorch/issues/22329
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -210,7 +196,7 @@ class BloomGelu(nn.Module):
 
 
 class BloomAttention(nn.Module):
-    def __init__(self, config: BloomConfig):
+    def __init__(self, config: BloomConfig) -> None:
         super().__init__()
 
         self.pretraining_tp = config.pretraining_tp
@@ -223,10 +209,8 @@ class BloomAttention(nn.Module):
         self.hidden_dropout = config.hidden_dropout
 
         if self.head_dim * self.num_heads != self.hidden_size:
-            raise ValueError(
-                f"`hidden_size` must be divisible by num_heads (got `hidden_size`: {self.hidden_size} and `num_heads`:"
-                f" {self.num_heads})."
-            )
+            msg = f"`hidden_size` must be divisible by num_heads (got `hidden_size`: {self.hidden_size} and `num_heads`:" f" {self.num_heads})."
+            raise ValueError(msg)
 
         # Layer-wise attention scaling
         self.inv_norm_factor = 1.0 / math.sqrt(self.head_dim)
@@ -236,31 +220,35 @@ class BloomAttention(nn.Module):
         self.dense = nn.Linear(self.hidden_size, self.hidden_size)
         self.attention_dropout = nn.Dropout(config.attention_dropout)
 
-    def _split_heads(self, fused_qkv: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """
-        Split the last dimension into (num_heads, head_dim) without making any copies, results share same memory
-        storage as `fused_qkv`
+    def _split_heads(self, fused_qkv: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Split the last dimension into (num_heads, head_dim) without making any copies, results share same memory
+        storage as `fused_qkv`.
 
         Args:
+        ----
             fused_qkv (`torch.tensor`, *required*): [batch_size, seq_length, num_heads * 3 * head_dim]
 
         Returns:
+        -------
             query: [batch_size, seq_length, num_heads, head_dim] key: [batch_size, seq_length, num_heads, head_dim]
             value: [batch_size, seq_length, num_heads, head_dim]
+
         """
         batch_size, seq_length, three_times_hidden_size = fused_qkv.shape
         fused_qkv = fused_qkv.view(batch_size, seq_length, self.num_heads, 3, self.head_dim)
         return fused_qkv[..., 0, :], fused_qkv[..., 1, :], fused_qkv[..., 2, :]
 
     def _merge_heads(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Merge heads together over the last dimension
+        """Merge heads together over the last dimension.
 
         Args:
+        ----
             x (`torch.tensor`, *required*): [batch_size * num_heads, seq_length, head_dim]
 
         Returns:
+        -------
             torch.tensor: [batch_size, seq_length, num_heads * head_dim]
+
         """
         # What we want to achieve is:
         # batch_size * num_heads, seq_length, head_dim -> batch_size, seq_length, num_heads * head_dim
@@ -283,8 +271,8 @@ class BloomAttention(nn.Module):
         residual: torch.Tensor,
         alibi: torch.Tensor,
         attention_mask: torch.Tensor,
-        layer_past: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
-        head_mask: Optional[torch.Tensor] = None,
+        layer_past: tuple[torch.Tensor, torch.Tensor] | None = None,
+        head_mask: torch.Tensor | None = None,
         use_cache: bool = False,
         output_attentions: bool = False,
     ):
@@ -308,10 +296,7 @@ class BloomAttention(nn.Module):
 
         _, _, kv_length = key_layer.shape
 
-        if use_cache is True:
-            present = (key_layer, value_layer)
-        else:
-            present = None
+        present = (key_layer, value_layer) if use_cache is True else None
 
         # [batch_size * num_heads, q_length, kv_length]
         # we use `torch.Tensor.baddbmm` instead of `torch.baddbmm` as the latter isn't supported by TorchScript v1.11
@@ -370,7 +355,7 @@ class BloomAttention(nn.Module):
 
 
 class BloomMLP(nn.Module):
-    def __init__(self, config: BloomConfig):
+    def __init__(self, config: BloomConfig) -> None:
         super().__init__()
         hidden_size = config.hidden_size
 
@@ -395,13 +380,11 @@ class BloomMLP(nn.Module):
         else:
             intermediate_output = self.dense_4h_to_h(hidden_states)
 
-        output = dropout_add(intermediate_output, residual, self.hidden_dropout, self.training)
-
-        return output
+        return dropout_add(intermediate_output, residual, self.hidden_dropout, self.training)
 
 
 class BloomBlock(nn.Module):
-    def __init__(self, config: BloomConfig):
+    def __init__(self, config: BloomConfig) -> None:
         super().__init__()
         hidden_size = config.hidden_size
 
@@ -420,8 +403,8 @@ class BloomBlock(nn.Module):
         hidden_states: torch.Tensor,
         alibi: torch.Tensor,
         attention_mask: torch.Tensor,
-        layer_past: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
-        head_mask: Optional[torch.Tensor] = None,
+        layer_past: tuple[torch.Tensor, torch.Tensor] | None = None,
+        head_mask: torch.Tensor | None = None,
         use_cache: bool = False,
         output_attentions: bool = False,
     ):
@@ -431,10 +414,7 @@ class BloomBlock(nn.Module):
         layernorm_output = self.input_layernorm(hidden_states)
 
         # Layer norm post the self attention.
-        if self.apply_residual_connection_post_layernorm:
-            residual = layernorm_output
-        else:
-            residual = hidden_states
+        residual = layernorm_output if self.apply_residual_connection_post_layernorm else hidden_states
 
         # Self attention.
         attn_outputs = self.self_attention(
@@ -455,20 +435,12 @@ class BloomBlock(nn.Module):
         layernorm_output = self.post_attention_layernorm(attention_output)
 
         # Get residual
-        if self.apply_residual_connection_post_layernorm:
-            residual = layernorm_output
-        else:
-            residual = attention_output
+        residual = layernorm_output if self.apply_residual_connection_post_layernorm else attention_output
 
         # MLP.
         output = self.mlp(layernorm_output, residual)
 
-        if use_cache:
-            outputs = (output,) + outputs
-        else:
-            outputs = (output,) + outputs[1:]
-
-        return outputs  # hidden_states, present, attentions
+        return (output, *outputs) if use_cache else (output,) + outputs[1:]
 
 
 class BloomPreTrainedModel(PreTrainedModel):
@@ -478,10 +450,10 @@ class BloomPreTrainedModel(PreTrainedModel):
     _no_split_modules = ["BloomBlock"]
     _skip_keys_device_placement = "past_key_values"
 
-    def __init__(self, *inputs, **kwargs):
+    def __init__(self, *inputs, **kwargs) -> None:
         super().__init__(*inputs, **kwargs)
 
-    def _init_weights(self, module: nn.Module):
+    def _init_weights(self, module: nn.Module) -> None:
         """Initialize the weights."""
         if isinstance(module, nn.Linear):
             # Slightly different from the TF version which uses truncated_normal for initialization
@@ -497,17 +469,14 @@ class BloomPreTrainedModel(PreTrainedModel):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
 
-    def _set_gradient_checkpointing(self, module: nn.Module, value: bool = False):
+    def _set_gradient_checkpointing(self, module: nn.Module, value: bool = False) -> None:
         if isinstance(module, BloomModel):
             module.gradient_checkpointing = value
 
     @staticmethod
-    def _convert_to_standard_cache(
-        past_key_value: Tuple[Tuple[torch.Tensor, torch.Tensor]], batch_size: int
-    ) -> Tuple[Tuple[torch.Tensor, torch.Tensor]]:
-        """
-        Standardizes the format of the cache so as to match most implementations, i.e. to tuple(tuple([batch_size,
-        num_heads, ...]))
+    def _convert_to_standard_cache(past_key_value: tuple[tuple[torch.Tensor, torch.Tensor]], batch_size: int) -> tuple[tuple[torch.Tensor, torch.Tensor]]:
+        """Standardizes the format of the cache so as to match most implementations, i.e. to tuple(tuple([batch_size,
+        num_heads, ...])).
         """
         batch_size_times_num_heads, head_dim, seq_length = past_key_value[0][0].shape
         num_heads = batch_size_times_num_heads // batch_size
@@ -522,12 +491,8 @@ class BloomPreTrainedModel(PreTrainedModel):
         )
 
     @staticmethod
-    def _convert_to_bloom_cache(
-        past_key_value: Tuple[Tuple[torch.Tensor, torch.Tensor]]
-    ) -> Tuple[Tuple[torch.Tensor, torch.Tensor]]:
-        """
-        Converts the cache to the format expected by Bloom, i.e. to tuple(tuple([batch_size * num_heads, ...]))
-        """
+    def _convert_to_bloom_cache(past_key_value: tuple[tuple[torch.Tensor, torch.Tensor]]) -> tuple[tuple[torch.Tensor, torch.Tensor]]:
+        """Converts the cache to the format expected by Bloom, i.e. to tuple(tuple([batch_size * num_heads, ...]))."""
         batch_size, num_heads, head_dim, seq_length = past_key_value[0][0].shape
         batch_size_times_num_heads = batch_size * num_heads
         # key:  [batch_size, num_heads, head_dim, seq_length] -> [batch_size * num_heads, head_dim, seq_length]
@@ -616,7 +581,7 @@ BLOOM_INPUTS_DOCSTRING = r"""
     BLOOM_START_DOCSTRING,
 )
 class BloomModel(BloomPreTrainedModel):
-    def __init__(self, config: BloomConfig):
+    def __init__(self, config: BloomConfig) -> None:
         super().__init__(config)
 
         self.embed_dim = config.hidden_size
@@ -643,9 +608,7 @@ class BloomModel(BloomPreTrainedModel):
     def get_input_embeddings(self):
         return self.word_embeddings
 
-    def _prepare_attn_mask(
-        self, attention_mask: torch.Tensor, input_shape: Tuple[int, int], past_key_values_length: int
-    ) -> torch.BoolTensor:
+    def _prepare_attn_mask(self, attention_mask: torch.Tensor, input_shape: tuple[int, int], past_key_values_length: int) -> torch.BoolTensor:
         # create causal mask
         # [batch_size, seq_length] -> [batch_size, 1, tgt_length, src_length]
         combined_attention_mask = None
@@ -653,19 +616,13 @@ class BloomModel(BloomPreTrainedModel):
         _, src_length = input_shape
 
         if src_length > 1:
-            combined_attention_mask = _make_causal_mask(
-                input_shape, device=device, past_key_values_length=past_key_values_length
-            )
+            combined_attention_mask = _make_causal_mask(input_shape, device=device, past_key_values_length=past_key_values_length)
 
         # [batch_size, seq_length] -> [batch_size, 1, tgt_length, src_length]
         expanded_attn_mask = _expand_mask(attention_mask, tgt_length=src_length)
-        combined_attention_mask = (
-            expanded_attn_mask if combined_attention_mask is None else expanded_attn_mask | combined_attention_mask
-        )
+        return expanded_attn_mask if combined_attention_mask is None else expanded_attn_mask | combined_attention_mask
 
-        return combined_attention_mask
-
-    def set_input_embeddings(self, new_embeddings: torch.Tensor):
+    def set_input_embeddings(self, new_embeddings: torch.Tensor) -> None:
         self.word_embeddings = new_embeddings
 
     @add_start_docstrings_to_model_forward(BLOOM_INPUTS_DOCSTRING)
@@ -676,42 +633,42 @@ class BloomModel(BloomPreTrainedModel):
     )
     def forward(
         self,
-        input_ids: Optional[torch.LongTensor] = None,
-        past_key_values: Optional[Tuple[Tuple[torch.Tensor, torch.Tensor], ...]] = None,
-        attention_mask: Optional[torch.Tensor] = None,
-        head_mask: Optional[torch.LongTensor] = None,
-        inputs_embeds: Optional[torch.LongTensor] = None,
-        use_cache: Optional[bool] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
+        input_ids: torch.LongTensor | None = None,
+        past_key_values: tuple[tuple[torch.Tensor, torch.Tensor], ...] | None = None,
+        attention_mask: torch.Tensor | None = None,
+        head_mask: torch.LongTensor | None = None,
+        inputs_embeds: torch.LongTensor | None = None,
+        use_cache: bool | None = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
         **deprecated_arguments,
-    ) -> Union[Tuple[torch.Tensor, ...], BaseModelOutputWithPastAndCrossAttentions]:
+    ) -> tuple[torch.Tensor, ...] | BaseModelOutputWithPastAndCrossAttentions:
         if deprecated_arguments.pop("position_ids", False) is not False:
             # `position_ids` could have been `torch.Tensor` or `None` so defaulting pop to `False` allows to detect if users were passing explicitly `None`
             warnings.warn(
-                "`position_ids` have no functionality in BLOOM and will be removed in v5.0.0. You can safely ignore"
-                " passing `position_ids`.",
+                "`position_ids` have no functionality in BLOOM and will be removed in v5.0.0. You can safely ignore" " passing `position_ids`.",
                 FutureWarning,
             )
         if len(deprecated_arguments) > 0:
-            raise ValueError(f"Got unexpected arguments: {deprecated_arguments}")
+            msg = f"Got unexpected arguments: {deprecated_arguments}"
+            raise ValueError(msg)
 
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
-        output_hidden_states = (
-            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
-        )
+        output_hidden_states = output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         use_cache = use_cache if use_cache is not None else self.config.use_cache
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
         if input_ids is not None and inputs_embeds is not None:
-            raise ValueError("You cannot specify both input_ids and inputs_embeds at the same time")
-        elif input_ids is not None:
+            msg = "You cannot specify both input_ids and inputs_embeds at the same time"
+            raise ValueError(msg)
+        if input_ids is not None:
             batch_size, seq_length = input_ids.shape
         elif inputs_embeds is not None:
             batch_size, seq_length, _ = inputs_embeds.shape
         else:
-            raise ValueError("You have to specify either input_ids or inputs_embeds")
+            msg = "You have to specify either input_ids or inputs_embeds"
+            raise ValueError(msg)
 
         if past_key_values is None:
             past_key_values = tuple([None] * len(self.h))
@@ -731,12 +688,9 @@ class BloomModel(BloomPreTrainedModel):
         all_self_attentions = () if output_attentions else None
         all_hidden_states = () if output_hidden_states else None
 
-        if self.gradient_checkpointing and self.training:
-            if use_cache:
-                logger.warning_once(
-                    "`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`..."
-                )
-                use_cache = False
+        if self.gradient_checkpointing and self.training and use_cache:
+            logger.warning_once("`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`...")
+            use_cache = False
 
         # Compute alibi tensor: check build_alibi_tensor documentation
         seq_length_with_past = seq_length
@@ -757,9 +711,9 @@ class BloomModel(BloomPreTrainedModel):
             past_key_values_length=past_key_values_length,
         )
 
-        for i, (block, layer_past) in enumerate(zip(self.h, past_key_values)):
+        for i, (block, layer_past) in enumerate(zip(self.h, past_key_values, strict=False)):
             if output_hidden_states:
-                all_hidden_states = all_hidden_states + (hidden_states,)
+                all_hidden_states = (*all_hidden_states, hidden_states)
 
             if self.gradient_checkpointing and self.training:
 
@@ -791,16 +745,16 @@ class BloomModel(BloomPreTrainedModel):
 
             hidden_states = outputs[0]
             if use_cache is True:
-                presents = presents + (outputs[1],)
+                presents = (*presents, outputs[1])
 
             if output_attentions:
-                all_self_attentions = all_self_attentions + (outputs[2 if use_cache else 1],)
+                all_self_attentions = (*all_self_attentions, outputs[2 if use_cache else 1])
 
         # Add last hidden state
         hidden_states = self.ln_f(hidden_states)
 
         if output_hidden_states:
-            all_hidden_states = all_hidden_states + (hidden_states,)
+            all_hidden_states = (*all_hidden_states, hidden_states)
 
         if not return_dict:
             return tuple(v for v in [hidden_states, presents, all_hidden_states, all_self_attentions] if v is not None)
@@ -823,7 +777,7 @@ class BloomModel(BloomPreTrainedModel):
 class BloomForCausalLM(BloomPreTrainedModel):
     _tied_weights_keys = ["lm_head.weight"]
 
-    def __init__(self, config: BloomConfig):
+    def __init__(self, config: BloomConfig) -> None:
         super().__init__(config)
         self.transformer = BloomModel(config)
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
@@ -834,15 +788,15 @@ class BloomForCausalLM(BloomPreTrainedModel):
     def get_output_embeddings(self):
         return self.lm_head
 
-    def set_output_embeddings(self, new_embeddings: torch.Tensor):
+    def set_output_embeddings(self, new_embeddings: torch.Tensor) -> None:
         self.lm_head = new_embeddings
 
     def prepare_inputs_for_generation(
         self,
         input_ids: torch.LongTensor,
-        past_key_values: Optional[torch.Tensor] = None,
-        attention_mask: Optional[torch.Tensor] = None,
-        inputs_embeds: Optional[torch.Tensor] = None,
+        past_key_values: torch.Tensor | None = None,
+        attention_mask: torch.Tensor | None = None,
+        inputs_embeds: torch.Tensor | None = None,
         **kwargs,
     ) -> dict:
         # only last token for input_ids if past is not None
@@ -854,10 +808,7 @@ class BloomForCausalLM(BloomPreTrainedModel):
                 past_key_values = self._convert_to_bloom_cache(past_key_values)
 
         # if `inputs_embeds` are passed, we only want to use them in the 1st generation step
-        if inputs_embeds is not None and past_key_values is None:
-            model_inputs = {"inputs_embeds": inputs_embeds}
-        else:
-            model_inputs = {"input_ids": input_ids}
+        model_inputs = {"inputs_embeds": inputs_embeds} if inputs_embeds is not None and past_key_values is None else {"input_ids": input_ids}
 
         model_inputs.update(
             {
@@ -876,33 +827,32 @@ class BloomForCausalLM(BloomPreTrainedModel):
     )
     def forward(
         self,
-        input_ids: Optional[torch.LongTensor] = None,
-        past_key_values: Optional[Tuple[Tuple[torch.Tensor, torch.Tensor], ...]] = None,
-        attention_mask: Optional[torch.Tensor] = None,
-        head_mask: Optional[torch.Tensor] = None,
-        inputs_embeds: Optional[torch.Tensor] = None,
-        labels: Optional[torch.Tensor] = None,
-        use_cache: Optional[bool] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
+        input_ids: torch.LongTensor | None = None,
+        past_key_values: tuple[tuple[torch.Tensor, torch.Tensor], ...] | None = None,
+        attention_mask: torch.Tensor | None = None,
+        head_mask: torch.Tensor | None = None,
+        inputs_embeds: torch.Tensor | None = None,
+        labels: torch.Tensor | None = None,
+        use_cache: bool | None = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
         **deprecated_arguments,
-    ) -> Union[Tuple[torch.Tensor], CausalLMOutputWithCrossAttentions]:
-        r"""
-        labels (`torch.LongTensor` of shape `(batch_size, sequence_length)`, *optional*):
-            Labels for language modeling. Note that the labels **are shifted** inside the model, i.e. you can set
-            `labels = input_ids` Indices are selected in `[-100, 0, ..., config.vocab_size]` All labels set to `-100`
-            are ignored (masked), the loss is only computed for labels in `[0, ..., config.vocab_size]`
+    ) -> tuple[torch.Tensor] | CausalLMOutputWithCrossAttentions:
+        r"""Labels (`torch.LongTensor` of shape `(batch_size, sequence_length)`, *optional*):
+        Labels for language modeling. Note that the labels **are shifted** inside the model, i.e. you can set
+        `labels = input_ids` Indices are selected in `[-100, 0, ..., config.vocab_size]` All labels set to `-100`
+        are ignored (masked), the loss is only computed for labels in `[0, ..., config.vocab_size]`.
         """
         if deprecated_arguments.pop("position_ids", False) is not False:
             # `position_ids` could have been `torch.Tensor` or `None` so defaulting pop to `False` allows to detect if users were passing explicitly `None`
             warnings.warn(
-                "`position_ids` have no functionality in BLOOM and will be removed in v5.0.0. You can safely ignore"
-                " passing `position_ids`.",
+                "`position_ids` have no functionality in BLOOM and will be removed in v5.0.0. You can safely ignore" " passing `position_ids`.",
                 FutureWarning,
             )
         if len(deprecated_arguments) > 0:
-            raise ValueError(f"Got unexpected arguments: {deprecated_arguments}")
+            msg = f"Got unexpected arguments: {deprecated_arguments}"
+            raise ValueError(msg)
 
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
@@ -918,17 +868,16 @@ class BloomForCausalLM(BloomPreTrainedModel):
             return_dict=return_dict,
         )
 
-        early_exit_layers = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30]
-
+        early_exit_layers = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30]
 
         if early_exit_layers is not None:
             # print("In Exit Layer")
             logits_dict = {}
             # value_dict = {}
-            for i, early_exit_layer in enumerate(early_exit_layers):
+            for _i, early_exit_layer in enumerate(early_exit_layers):
                 lm_logits = self.lm_head(transformer_outputs.hidden_states[early_exit_layer])
                 logits_dict[early_exit_layer] = lm_logits
-            
+
             loss = None
             if labels is not None:
                 # move labels to correct device to enable model parallelism
@@ -939,14 +888,11 @@ class BloomForCausalLM(BloomPreTrainedModel):
                 batch_size, seq_length, vocab_size = shift_logits.shape
                 # Flatten the tokens
                 loss_fct = CrossEntropyLoss()
-                loss = loss_fct(
-                    shift_logits.view(batch_size * seq_length, vocab_size), shift_labels.view(batch_size * seq_length)
-                )
+                loss = loss_fct(shift_logits.view(batch_size * seq_length, vocab_size), shift_labels.view(batch_size * seq_length))
 
             if not return_dict:
                 output = (lm_logits,) + transformer_outputs[1:]
-                return ((loss,) + output) if loss is not None else output
-            
+                return ((loss, *output)) if loss is not None else output
 
             final_outputs = CausalLMOutputWithCrossAttentions(
                 loss=loss,
@@ -957,7 +903,6 @@ class BloomForCausalLM(BloomPreTrainedModel):
             )
 
             return logits_dict, final_outputs
-
 
         else:
             hidden_states = transformer_outputs[0]
@@ -974,13 +919,11 @@ class BloomForCausalLM(BloomPreTrainedModel):
                 batch_size, seq_length, vocab_size = shift_logits.shape
                 # Flatten the tokens
                 loss_fct = CrossEntropyLoss()
-                loss = loss_fct(
-                    shift_logits.view(batch_size * seq_length, vocab_size), shift_labels.view(batch_size * seq_length)
-                )
+                loss = loss_fct(shift_logits.view(batch_size * seq_length, vocab_size), shift_labels.view(batch_size * seq_length))
 
             if not return_dict:
                 output = (lm_logits,) + transformer_outputs[1:]
-                return ((loss,) + output) if loss is not None else output
+                return ((loss, *output)) if loss is not None else output
 
             return CausalLMOutputWithCrossAttentions(
                 loss=loss,
@@ -990,12 +933,8 @@ class BloomForCausalLM(BloomPreTrainedModel):
                 attentions=transformer_outputs.attentions,
             )
 
-
-    def _reorder_cache(
-        self, past: Tuple[Tuple[torch.Tensor, torch.Tensor], ...], beam_idx: torch.LongTensor
-    ) -> Tuple[Tuple[torch.Tensor, torch.Tensor], ...]:
-        """
-        This function is used to re-order the `past_key_values` cache if [`~PreTrainedModel.beam_search`] or
+    def _reorder_cache(self, past: tuple[tuple[torch.Tensor, torch.Tensor], ...], beam_idx: torch.LongTensor) -> tuple[tuple[torch.Tensor, torch.Tensor], ...]:
+        """This function is used to re-order the `past_key_values` cache if [`~PreTrainedModel.beam_search`] or
         [`~PreTrainedModel.beam_sample`] is called. This is required to match `past_key_values` with the correct
         beam_idx at every generation step.
 
@@ -1004,9 +943,7 @@ class BloomForCausalLM(BloomPreTrainedModel):
         standardized_past = self._convert_to_standard_cache(past, batch_size=len(beam_idx))
 
         # Get a copy of `beam_idx` on all the devices where we need those indices.
-        device_to_beam_idx = {
-            past_state.device: beam_idx.to(past_state.device) for layer_past in past for past_state in layer_past
-        }
+        device_to_beam_idx = {past_state.device: beam_idx.to(past_state.device) for layer_past in past for past_state in layer_past}
         reordered_past = tuple(
             (
                 layer_past[0].index_select(0, device_to_beam_idx[layer_past[0].device]),
@@ -1033,7 +970,7 @@ class BloomForCausalLM(BloomPreTrainedModel):
     BLOOM_START_DOCSTRING,
 )
 class BloomForSequenceClassification(BloomPreTrainedModel):
-    def __init__(self, config: BloomConfig):
+    def __init__(self, config: BloomConfig) -> None:
         super().__init__(config)
         self.num_labels = config.num_labels
         self.transformer = BloomModel(config)
@@ -1050,33 +987,32 @@ class BloomForSequenceClassification(BloomPreTrainedModel):
     )
     def forward(
         self,
-        input_ids: Optional[torch.LongTensor] = None,
-        past_key_values: Optional[Tuple[Tuple[torch.Tensor, torch.Tensor], ...]] = None,
-        attention_mask: Optional[torch.Tensor] = None,
-        head_mask: Optional[torch.Tensor] = None,
-        inputs_embeds: Optional[torch.Tensor] = None,
-        labels: Optional[torch.Tensor] = None,
-        use_cache: Optional[bool] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
+        input_ids: torch.LongTensor | None = None,
+        past_key_values: tuple[tuple[torch.Tensor, torch.Tensor], ...] | None = None,
+        attention_mask: torch.Tensor | None = None,
+        head_mask: torch.Tensor | None = None,
+        inputs_embeds: torch.Tensor | None = None,
+        labels: torch.Tensor | None = None,
+        use_cache: bool | None = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
         **deprecated_arguments,
-    ) -> Union[Tuple[torch.Tensor], SequenceClassifierOutputWithPast]:
-        r"""
-        labels (`torch.LongTensor` of shape `(batch_size,)`, *optional*):
-            Labels for computing the sequence classification/regression loss. Indices should be in `[0, ...,
-            config.num_labels - 1]`. If `config.num_labels == 1` a regression loss is computed (Mean-Square loss), If
-            `config.num_labels > 1` a classification loss is computed (Cross-Entropy).
+    ) -> tuple[torch.Tensor] | SequenceClassifierOutputWithPast:
+        r"""Labels (`torch.LongTensor` of shape `(batch_size,)`, *optional*):
+        Labels for computing the sequence classification/regression loss. Indices should be in `[0, ...,
+        config.num_labels - 1]`. If `config.num_labels == 1` a regression loss is computed (Mean-Square loss), If
+        `config.num_labels > 1` a classification loss is computed (Cross-Entropy).
         """
         if deprecated_arguments.pop("position_ids", False) is not False:
             # `position_ids` could have been `torch.Tensor` or `None` so defaulting pop to `False` allows to detect if users were passing explicitly `None`
             warnings.warn(
-                "`position_ids` have no functionality in BLOOM and will be removed in v5.0.0. You can safely ignore"
-                " passing `position_ids`.",
+                "`position_ids` have no functionality in BLOOM and will be removed in v5.0.0. You can safely ignore" " passing `position_ids`.",
                 FutureWarning,
             )
         if len(deprecated_arguments) > 0:
-            raise ValueError(f"Got unexpected arguments: {deprecated_arguments}")
+            msg = f"Got unexpected arguments: {deprecated_arguments}"
+            raise ValueError(msg)
 
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
@@ -1095,24 +1031,21 @@ class BloomForSequenceClassification(BloomPreTrainedModel):
         hidden_states = transformer_outputs[0]
         logits = self.score(hidden_states)
 
-        if input_ids is not None:
-            batch_size = input_ids.shape[0]
-        else:
-            batch_size = inputs_embeds.shape[0]
+        batch_size = input_ids.shape[0] if input_ids is not None else inputs_embeds.shape[0]
 
         if self.config.pad_token_id is None and batch_size != 1:
-            raise ValueError("Cannot handle batch sizes > 1 if no padding token is defined.")
+            msg = "Cannot handle batch sizes > 1 if no padding token is defined."
+            raise ValueError(msg)
         if self.config.pad_token_id is None:
             sequence_lengths = -1
+        elif input_ids is not None:
+            sequence_lengths = (torch.ne(input_ids, self.config.pad_token_id).sum(-1) - 1).to(logits.device)
         else:
-            if input_ids is not None:
-                sequence_lengths = (torch.ne(input_ids, self.config.pad_token_id).sum(-1) - 1).to(logits.device)
-            else:
-                sequence_lengths = -1
-                logger.warning(
-                    f"{self.__class__.__name__} will not detect padding tokens in `inputs_embeds`. Results may be "
-                    "unexpected if using padding tokens in conjunction with `inputs_embeds.`"
-                )
+            sequence_lengths = -1
+            logger.warning(
+                f"{self.__class__.__name__} will not detect padding tokens in `inputs_embeds`. Results may be "
+                "unexpected if using padding tokens in conjunction with `inputs_embeds.`"
+            )
 
         pooled_logits = logits[torch.arange(batch_size, device=logits.device), sequence_lengths]
 
@@ -1121,17 +1054,14 @@ class BloomForSequenceClassification(BloomPreTrainedModel):
             if self.config.problem_type is None:
                 if self.num_labels == 1:
                     self.config.problem_type = "regression"
-                elif self.num_labels > 1 and (labels.dtype == torch.long or labels.dtype == torch.int):
+                elif self.num_labels > 1 and (labels.dtype in (torch.long, torch.int)):
                     self.config.problem_type = "single_label_classification"
                 else:
                     self.config.problem_type = "multi_label_classification"
 
             if self.config.problem_type == "regression":
                 loss_fct = MSELoss()
-                if self.num_labels == 1:
-                    loss = loss_fct(pooled_logits.squeeze(), labels.squeeze())
-                else:
-                    loss = loss_fct(pooled_logits, labels)
+                loss = loss_fct(pooled_logits.squeeze(), labels.squeeze()) if self.num_labels == 1 else loss_fct(pooled_logits, labels)
             elif self.config.problem_type == "single_label_classification":
                 loss_fct = CrossEntropyLoss()
                 loss = loss_fct(pooled_logits, labels)
@@ -1140,7 +1070,7 @@ class BloomForSequenceClassification(BloomPreTrainedModel):
                 loss = loss_fct(pooled_logits, labels)
         if not return_dict:
             output = (pooled_logits,) + transformer_outputs[1:]
-            return ((loss,) + output) if loss is not None else output
+            return ((loss, *output)) if loss is not None else output
 
         return SequenceClassifierOutputWithPast(
             loss=loss,
@@ -1159,7 +1089,7 @@ class BloomForSequenceClassification(BloomPreTrainedModel):
     BLOOM_START_DOCSTRING,
 )
 class BloomForTokenClassification(BloomPreTrainedModel):
-    def __init__(self, config: BloomConfig):
+    def __init__(self, config: BloomConfig) -> None:
         super().__init__(config)
         self.num_labels = config.num_labels
 
@@ -1184,33 +1114,32 @@ class BloomForTokenClassification(BloomPreTrainedModel):
     )
     def forward(
         self,
-        input_ids: Optional[torch.LongTensor] = None,
-        past_key_values: Optional[Tuple[Tuple[torch.Tensor, torch.Tensor], ...]] = None,
-        attention_mask: Optional[torch.Tensor] = None,
-        head_mask: Optional[torch.Tensor] = None,
-        inputs_embeds: Optional[torch.Tensor] = None,
-        labels: Optional[torch.Tensor] = None,
-        use_cache: Optional[bool] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
+        input_ids: torch.LongTensor | None = None,
+        past_key_values: tuple[tuple[torch.Tensor, torch.Tensor], ...] | None = None,
+        attention_mask: torch.Tensor | None = None,
+        head_mask: torch.Tensor | None = None,
+        inputs_embeds: torch.Tensor | None = None,
+        labels: torch.Tensor | None = None,
+        use_cache: bool | None = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
         **deprecated_arguments,
-    ) -> Union[Tuple[torch.Tensor], TokenClassifierOutput]:
-        r"""
-        labels (`torch.LongTensor` of shape `(batch_size,)`, *optional*):
-            Labels for computing the sequence classification/regression loss. Indices should be in `[0, ...,
-            config.num_labels - 1]`. If `config.num_labels == 1` a regression loss is computed (Mean-Square loss), If
-            `config.num_labels > 1` a classification loss is computed (Cross-Entropy).
+    ) -> tuple[torch.Tensor] | TokenClassifierOutput:
+        r"""Labels (`torch.LongTensor` of shape `(batch_size,)`, *optional*):
+        Labels for computing the sequence classification/regression loss. Indices should be in `[0, ...,
+        config.num_labels - 1]`. If `config.num_labels == 1` a regression loss is computed (Mean-Square loss), If
+        `config.num_labels > 1` a classification loss is computed (Cross-Entropy).
         """
         if deprecated_arguments.pop("position_ids", False) is not False:
             # `position_ids` could have been `torch.Tensor` or `None` so defaulting pop to `False` allows to detect if users were passing explicitly `None`
             warnings.warn(
-                "`position_ids` have no functionality in BLOOM and will be removed in v5.0.0. You can safely ignore"
-                " passing `position_ids`.",
+                "`position_ids` have no functionality in BLOOM and will be removed in v5.0.0. You can safely ignore" " passing `position_ids`.",
                 FutureWarning,
             )
         if len(deprecated_arguments) > 0:
-            raise ValueError(f"Got unexpected arguments: {deprecated_arguments}")
+            msg = f"Got unexpected arguments: {deprecated_arguments}"
+            raise ValueError(msg)
 
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
@@ -1236,13 +1165,11 @@ class BloomForTokenClassification(BloomPreTrainedModel):
             labels = labels.to(logits.device)
             batch_size, seq_length = labels.shape
             loss_fct = CrossEntropyLoss()
-            loss = loss_fct(
-                logits.view(batch_size * seq_length, self.num_labels), labels.view(batch_size * seq_length)
-            )
+            loss = loss_fct(logits.view(batch_size * seq_length, self.num_labels), labels.view(batch_size * seq_length))
 
         if not return_dict:
             output = (logits,) + transformer_outputs[2:]
-            return ((loss,) + output) if loss is not None else output
+            return ((loss, *output)) if loss is not None else output
 
         return TokenClassifierOutput(
             loss=loss,
@@ -1260,7 +1187,7 @@ class BloomForTokenClassification(BloomPreTrainedModel):
     BLOOM_START_DOCSTRING,
 )
 class BloomForQuestionAnswering(BloomPreTrainedModel):
-    def __init__(self, config):
+    def __init__(self, config) -> None:
         super().__init__(config)
         self.transformer = BloomModel(config)
         self.qa_outputs = nn.Linear(config.hidden_size, 2)
@@ -1271,19 +1198,18 @@ class BloomForQuestionAnswering(BloomPreTrainedModel):
     @add_start_docstrings_to_model_forward(BLOOM_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     def forward(
         self,
-        input_ids: Optional[torch.LongTensor] = None,
-        attention_mask: Optional[torch.FloatTensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        head_mask: Optional[torch.FloatTensor] = None,
-        inputs_embeds: Optional[torch.FloatTensor] = None,
-        start_positions: Optional[torch.LongTensor] = None,
-        end_positions: Optional[torch.LongTensor] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
-    ) -> Union[Tuple, QuestionAnsweringModelOutput]:
-        r"""
-        start_positions (`torch.LongTensor` of shape `(batch_size,)`, *optional*):
+        input_ids: torch.LongTensor | None = None,
+        attention_mask: torch.FloatTensor | None = None,
+        position_ids: torch.LongTensor | None = None,
+        head_mask: torch.FloatTensor | None = None,
+        inputs_embeds: torch.FloatTensor | None = None,
+        start_positions: torch.LongTensor | None = None,
+        end_positions: torch.LongTensor | None = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
+    ) -> tuple | QuestionAnsweringModelOutput:
+        r"""start_positions (`torch.LongTensor` of shape `(batch_size,)`, *optional*):
             Labels for position (index) of the start of the labelled span for computing the token classification loss.
             Positions are clamped to the length of the sequence (`sequence_length`). Position outside of the sequence
             are not taken into account for computing the loss.
@@ -1331,7 +1257,7 @@ class BloomForQuestionAnswering(BloomPreTrainedModel):
 
         if not return_dict:
             output = (start_logits, end_logits) + outputs[2:]
-            return ((total_loss,) + output) if total_loss is not None else output
+            return ((total_loss, *output)) if total_loss is not None else output
 
         return QuestionAnsweringModelOutput(
             loss=total_loss,

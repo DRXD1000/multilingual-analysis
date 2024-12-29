@@ -30,7 +30,7 @@ model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto")
 
 
 def Prompting(model, prompt, candidate_premature_layers):
-    
+
     inputs = tokenizer(prompt, return_tensors="pt").to("cuda")
     hidden_states, outputs, activate_keys_fwd_up, activate_keys_fwd_down, activate_keys_q, activate_keys_k, activate_keys_v, activate_keys_o, layer_keys = model.generate(**{'input_ids':inputs.input_ids, 'max_new_tokens':1, 'candidate_premature_layers':candidate_premature_layers})
     hidden_embed = {}
@@ -41,7 +41,7 @@ def Prompting(model, prompt, candidate_premature_layers):
         # hidden_info[early_exit_layer] = tokenizer.decode(torch.tensor(hidden_values[early_exit_layer]).to("cuda"))
     answer = tokenizer.decode(outputs[0]).replace('<pad> ', '')
     answer = answer.replace('</s>', '')
-    
+
     return hidden_embed, answer, activate_keys_fwd_up, activate_keys_fwd_down, activate_keys_q, activate_keys_k, activate_keys_v, activate_keys_o, layer_keys
 
 
@@ -168,4 +168,3 @@ def main(argv):
 
 if __name__ == "__main__":
     main(sys.argv[1:])
-

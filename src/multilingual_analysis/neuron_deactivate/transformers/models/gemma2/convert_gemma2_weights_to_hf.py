@@ -17,17 +17,13 @@ import warnings
 
 import torch
 from accelerate import init_empty_weights
-
 from transformers import Gemma2Config, Gemma2ForCausalLM, GemmaTokenizer
-
 
 try:
     from transformers import GemmaTokenizerFast
 except ImportError as e:
     warnings.warn(e)
-    warnings.warn(
-        "The converted tokenizer will be the `slow` tokenizer. To use the fast, update your `tokenizers` library and re-run the tokenizer conversion"
-    )
+    warnings.warn("The converted tokenizer will be the `slow` tokenizer. To use the fast, update your `tokenizers` library and re-run the tokenizer conversion")
     GemmaTokenizerFast = None
 
 """
@@ -81,26 +77,20 @@ CONFIG_MAPPING = {"9B": gemma_9b_config, "27B": gemma_27b_config}
 LAYER_NAME_MAPPING = {"embedder.weight": "model.embed_tokens.weight"}
 
 
-def write_model(save_path, input_base_path, config, safe_serialization=True, push_to_hub=False, dtype=torch.float32):
+def write_model(save_path, input_base_path, config, safe_serialization=True, push_to_hub=False, dtype=torch.float32) -> None:
     num_attn_heads = config.num_attention_heads
     hidden_size = config.hidden_size
     num_kv_heads = config.num_key_value_heads
     head_dim = config.head_dim
 
-    print(f"Fetching all parameters from the checkpoint at '{input_base_path}'")
-
     if os.path.isdir(input_base_path):
-        print("Model seems sharded")
-
         model_state_dict = {}
         files = [file for file in os.listdir(input_base_path) if file.endswith(".bin")]
 
         for file in files:
-            print(file)
             loaded_state_dict = torch.load(os.path.join(input_base_path, file), map_location="cpu")
             model_state_dict.update(loaded_state_dict)
     else:
-        print("Model does not seem to be sharded")
         model_state_dict = torch.load(input_base_path, map_location="cpu")["model_state_dict"]
         model_state_dict.pop("freqs_cis")
 
@@ -113,26 +103,14 @@ def write_model(save_path, input_base_path, config, safe_serialization=True, pus
                 k_proj = v[num_attn_heads : num_attn_heads + num_kv_heads, ...].repeat(num_kv_heads, 1, 1)
                 v_proj = v[-num_kv_heads:, ...].repeat(num_kv_heads, 1, 1)
 
-                state_dict[k.replace("qkv_proj", "q_proj")] = q_proj.reshape(
-                    num_attn_heads * head_dim, hidden_size
-                ).clone()
-                state_dict[k.replace("qkv_proj", "k_proj")] = k_proj.reshape(
-                    num_kv_heads * head_dim, hidden_size
-                ).clone()
+                state_dict[k.replace("qkv_proj", "q_proj")] = q_proj.reshape(num_attn_heads * head_dim, hidden_size).clone()
+                state_dict[k.replace("qkv_proj", "k_proj")] = k_proj.reshape(num_kv_heads * head_dim, hidden_size).clone()
                 state_dict[k.replace("qkv_proj", "v_proj")] = v_proj[0].clone()
             else:
-                q_proj, k_proj, v_proj = torch.split(
-                    v, [num_attn_heads * head_dim, num_kv_heads * head_dim, num_kv_heads * head_dim], 0
-                )
-                state_dict[k.replace("qkv_proj", "q_proj")] = q_proj.reshape(
-                    num_attn_heads * head_dim, hidden_size
-                ).clone()
-                state_dict[k.replace("qkv_proj", "k_proj")] = k_proj.reshape(
-                    num_kv_heads * head_dim, hidden_size
-                ).clone()
-                state_dict[k.replace("qkv_proj", "v_proj")] = v_proj.reshape(
-                    num_kv_heads * head_dim, hidden_size
-                ).clone()
+                q_proj, k_proj, v_proj = torch.split(v, [num_attn_heads * head_dim, num_kv_heads * head_dim, num_kv_heads * head_dim], 0)
+                state_dict[k.replace("qkv_proj", "q_proj")] = q_proj.reshape(num_attn_heads * head_dim, hidden_size).clone()
+                state_dict[k.replace("qkv_proj", "k_proj")] = k_proj.reshape(num_kv_heads * head_dim, hidden_size).clone()
+                state_dict[k.replace("qkv_proj", "v_proj")] = v_proj.reshape(num_kv_heads * head_dim, hidden_size).clone()
 
         elif k == "embedder.weight":
             state_dict[LAYER_NAME_MAPPING[k]] = v
@@ -142,26 +120,22 @@ def write_model(save_path, input_base_path, config, safe_serialization=True, pus
 
     torch.set_default_dtype(dtype)
 
-    print("Loading the checkpoint in a Gemma2 model.")
     with init_empty_weights():
         model = Gemma2ForCausalLM(config)
     model.load_state_dict(state_dict, assign=True, strict=False)
 
     model.config.torch_dtype = torch.float32
     del model.config._name_or_path
-    print("Saving in the Transformers format.")
 
     if push_to_hub:
-        print(f"pushing the model to {save_path}")
         model.push_to_hub(save_path, safe_serialization=safe_serialization, private=True)
     else:
         model.save_pretrained(save_path, safe_serialization=safe_serialization)
 
 
-def write_tokenizer(input_tokenizer_path, save_path, push_to_hub=False):
+def write_tokenizer(input_tokenizer_path, save_path, push_to_hub=False) -> None:
     # Initialize the tokenizer based on the `spm` model
     tokenizer_class = GemmaTokenizer if GemmaTokenizerFast is None else GemmaTokenizerFast
-    print(f"Saving a {tokenizer_class.__name__} to {save_path}.")
     tokenizer = tokenizer_class(input_tokenizer_path)
     if push_to_hub:
         tokenizer.push_to_hub(save_path)
@@ -169,7 +143,7 @@ def write_tokenizer(input_tokenizer_path, save_path, push_to_hub=False):
         tokenizer.save_pretrained(save_path)
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--input_checkpoint",
@@ -218,11 +192,12 @@ def main():
 
     if args.convert_tokenizer:
         if args.tokenizer_checkpoint is None:
-            raise ValueError("Path to the tokenizer is required when passing --convert_tokenizer")
+            msg = "Path to the tokenizer is required when passing --convert_tokenizer"
+            raise ValueError(msg)
 
         spm_path = os.path.join(args.tokenizer_checkpoint)
         write_tokenizer(spm_path, args.output_dir, args.push_to_hub)
-    if not args.model_size == "tokenizer_only":
+    if args.model_size != "tokenizer_only":
         config = CONFIG_MAPPING[args.model_size]
         dtype = getattr(torch, args.dtype)
         write_model(

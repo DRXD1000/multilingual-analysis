@@ -1,44 +1,39 @@
 import os
-import torch
 
-from transformers import AutoModelForCausalLM, AutoTokenizer, TrainingArguments
+import torch
 from datasets import load_dataset
-from trl import SFTTrainer
 from peft import prepare_model_for_kbit_training
-from dataclasses import field
-import random
-import pdb
 from tqdm import tqdm
-from datasets import Dataset
-import re
+from transformers import AutoModelForCausalLM, AutoTokenizer, TrainingArguments
+from trl import SFTTrainer
+
 # os.environ["WANDB_DISABLED"] = "true"
 
-output_dir="xxxxxx"
-cache_dir="xxxxxx"
+output_dir = "xxxxxx"
+cache_dir = "xxxxxx"
 
-os.makedirs(output_dir,exist_ok=True)
-os.makedirs(cache_dir,exist_ok=True)
+os.makedirs(output_dir, exist_ok=True)
+os.makedirs(cache_dir, exist_ok=True)
 
 model_name = "meta-llama/Meta-Llama-3-8B"
 
 
 import argparse
+
 parser = argparse.ArgumentParser()
 
 parser.add_argument("--language", type=str, default="English")
 parser.add_argument("--task", type=str, default="Wiki")
 
 args = parser.parse_args()
-print(args)
 
-import ast
 
 def retrive_neuron(filename):
     # Empty list to store the dictionaries
     activate_neuron = []
 
     # Open the file and read line by line
-    with open(filename, 'r') as file:
+    with open(filename) as file:
         neurons = file.readlines()
         for neuron in neurons:
             neuron = eval(neuron.strip())
@@ -46,8 +41,9 @@ def retrive_neuron(filename):
 
     return activate_neuron
 
+
 def deduplicate(neuron_target, neuron_delete):
-    index_keys = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]
+    index_keys = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
     for key in index_keys:
         neuron_target[0][key] = neuron_target[0][key] - neuron_delete[0][key]
         neuron_target[1][key] = neuron_target[1][key] - neuron_delete[1][key]
@@ -58,10 +54,10 @@ def deduplicate(neuron_target, neuron_delete):
     return neuron_target
 
 
-activate_neuron =  retrive_neuron('xxxxxx')
+activate_neuron = retrive_neuron("xxxxxx")
 
 
-dataset = load_dataset("json", data_files="xxxxxxx",split="train", cache_dir=cache_dir)
+dataset = load_dataset("json", data_files="xxxxxxx", split="train", cache_dir=cache_dir)
 
 
 # base_model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.bfloat16)
@@ -71,7 +67,7 @@ base_model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.
 base_model.config.use_cache = False
 base_model = prepare_model_for_kbit_training(base_model)
 
-for name, param in tqdm(base_model.named_parameters()):
+for _name, param in tqdm(base_model.named_parameters()):
     param.requires_grad = True
 
 
@@ -81,9 +77,10 @@ tokenizer.padding_side = "right"  # Fix weird overflow issue with fp16 training
 
 # data['original_question']+data['response']
 
+
 def formatting_prompts_func(example):
     output_texts = []
-    for i in range(len(example['original_question'])):
+    for i in range(len(example["original_question"])):
         text = f"{example['original_question'][i]}. {example['response'][i]}"
         # text = f"Question: {example['prompt'][i]}\nAnswer: {example['completion'][i]}"
         # text = f"```{example['prompt'][i]}{example['completion'][i]}```"
@@ -95,9 +92,9 @@ def formatting_prompts_func(example):
 training_args = TrainingArguments(
     per_device_train_batch_size=8,
     gradient_accumulation_steps=4,
-    gradient_checkpointing =True,
-    max_grad_norm= 0.3,
-    num_train_epochs=1, 
+    gradient_checkpointing=True,
+    max_grad_norm=0.3,
+    num_train_epochs=1,
     learning_rate=2e-6,
     bf16=True,
     save_steps=500,
@@ -110,16 +107,9 @@ training_args = TrainingArguments(
     activate_neuron=activate_neuron,
 )
 
-trainer = SFTTrainer(
-    base_model,
-    train_dataset=dataset,
-    tokenizer=tokenizer,
-    max_seq_length=512,
-    formatting_func=formatting_prompts_func,
-    args=training_args
-)
+trainer = SFTTrainer(base_model, train_dataset=dataset, tokenizer=tokenizer, max_seq_length=512, formatting_func=formatting_prompts_func, args=training_args)
 
-trainer.train() 
+trainer.train()
 
 output_dir = os.path.join(output_dir, "Llama3_Reason")
 trainer.model.save_pretrained(output_dir)

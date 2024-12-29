@@ -1,4 +1,3 @@
-# coding=utf-8
 # Copyright 2024 Mistral AI and the HuggingFace Inc. team. All rights reserved.
 #
 # This code is based on EleutherAI's GPT-NeoX library and the GPT-NeoX
@@ -21,7 +20,6 @@
 
 import math
 import warnings
-from typing import List, Optional, Tuple, Union
 
 import tensorflow as tf
 
@@ -48,16 +46,13 @@ from ...utils import (
 )
 from .configuration_mistral import MistralConfig
 
-
 logger = logging.get_logger(__name__)
 
 _CONFIG_FOR_DOC = "MistralConfig"
 
 
 def _make_causal_mask(input_ids_shape, dtype, past_key_values_length=0):
-    """
-    Make causal mask used for bi-directional self-attention, supporting both static and dynamic shapes.
-    """
+    """Make causal mask used for bi-directional self-attention, supporting both static and dynamic shapes."""
     bsz, tgt_len = input_ids_shape
 
     # Create a matrix where only the lower triangle and diagonal are filled with zeros (causal mask)
@@ -82,9 +77,7 @@ def _make_causal_mask(input_ids_shape, dtype, past_key_values_length=0):
 
 
 def _expand_mask(mask, dtype, tgt_len=None):
-    """
-    Expands attention_mask from `[bsz, seq_len]` to `[bsz, 1, tgt_seq_len, src_seq_len]`.
-    """
+    """Expands attention_mask from `[bsz, seq_len]` to `[bsz, 1, tgt_seq_len, src_seq_len]`."""
     bsz, src_len = shape_list(mask)
     tgt_len = tgt_len if tgt_len is not None else src_len
 
@@ -93,21 +86,17 @@ def _expand_mask(mask, dtype, tgt_len=None):
 
     inverted_mask = 1.0 - tf.cast(expanded_mask, dtype)
 
-    return tf.where(
-        tf.cast(inverted_mask, bool), tf.fill(dims=shape_list(inverted_mask), value=tf.float32.min), inverted_mask
-    )
+    return tf.where(tf.cast(inverted_mask, bool), tf.fill(dims=shape_list(inverted_mask), value=tf.float32.min), inverted_mask)
 
 
 class TFMistralRMSNorm(keras.layers.Layer):
-    def __init__(self, hidden_size, eps=1e-6, **kwargs):
-        """
-        TFMistralRMSNorm is equivalent to T5LayerNorm
-        """
+    def __init__(self, hidden_size, eps=1e-6, **kwargs) -> None:
+        """TFMistralRMSNorm is equivalent to T5LayerNorm."""
         super().__init__(**kwargs)
         self.hidden_size = hidden_size
         self.variance_epsilon = eps
 
-    def build(self, input_shape=None):
+    def build(self, input_shape=None) -> None:
         self.weight = self.add_weight(
             name="weight",
             shape=self.hidden_size,
@@ -127,7 +116,7 @@ class TFMistralRMSNorm(keras.layers.Layer):
 
 # Verification: https://colab.research.google.com/gist/ariG23498/f8d8131b795a131b93d99e70ee93c192/scratchpad.ipynb
 class TFMistralRotaryEmbedding(keras.layers.Layer):
-    def __init__(self, dim, max_position_embeddings=2048, base=10000, **kwargs):
+    def __init__(self, dim, max_position_embeddings=2048, base=10000, **kwargs) -> None:
         super().__init__(**kwargs)
         self.dim = dim
         self.max_position_embeddings = max_position_embeddings
@@ -162,6 +151,7 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids, unsqueeze_dim=1):
     """Applies Rotary Position Embedding to the query and key tensors.
 
     Args:
+    ----
         q (`tf.Tensor`): The query tensor.
         k (`tf.Tensor`): The key tensor.
         cos (`tf.Tensor`): The cosine part of the rotary embedding.
@@ -176,8 +166,11 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids, unsqueeze_dim=1):
             k have the shape [batch_size, heads, seq_len, head_dim], then setting unsqueeze_dim=1 makes
             cos[position_ids] and sin[position_ids] broadcastable to the shapes of q and k. Similarly, if q and k have
             the shape [batch_size, seq_len, heads, head_dim], then set unsqueeze_dim=2.
+
     Returns:
+    -------
         `tuple(tf.Tensor)` comprising of the query and key tensors rotated using the Rotary Position Embedding.
+
     """
     cos = tf.expand_dims(tf.gather(cos, position_ids), unsqueeze_dim)
     sin = tf.expand_dims(tf.gather(sin, position_ids), unsqueeze_dim)
@@ -187,7 +180,7 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids, unsqueeze_dim=1):
 
 
 class TFMistralMLP(keras.layers.Layer):
-    def __init__(self, config, **kwargs):
+    def __init__(self, config, **kwargs) -> None:
         super().__init__(**kwargs)
         self.config = config
         self.hidden_size = config.hidden_size
@@ -200,7 +193,7 @@ class TFMistralMLP(keras.layers.Layer):
     def call(self, x):
         return self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
 
-    def build(self, input_shape=None):
+    def build(self, input_shape=None) -> None:
         if self.built:
             return
         self.built = True
@@ -217,9 +210,8 @@ class TFMistralMLP(keras.layers.Layer):
 
 # Verification: https://colab.research.google.com/gist/ariG23498/556d443d491966763ce2e7eee336efed/scratchpad.ipynb
 def repeat_kv(hidden_states: tf.Tensor, n_rep: int) -> tf.Tensor:
-    """
-    This is the equivalent of torch.repeat_interleave(x, dim=1, repeats=n_rep). The hidden states go from (batch,
-    num_key_value_heads, seqlen, head_dim) to (batch, num_attention_heads, seqlen, head_dim)
+    """This is the equivalent of torch.repeat_interleave(x, dim=1, repeats=n_rep). The hidden states go from (batch,
+    num_key_value_heads, seqlen, head_dim) to (batch, num_attention_heads, seqlen, head_dim).
     """
     batch, num_key_value_heads, slen, head_dim = shape_list(hidden_states)
     if n_rep == 1:
@@ -230,12 +222,11 @@ def repeat_kv(hidden_states: tf.Tensor, n_rep: int) -> tf.Tensor:
 
 
 class TFMistralAttention(keras.layers.Layer):
-    """
-    Multi-headed attention from 'Attention Is All You Need' paper. Modified to use sliding window attention: Longformer
+    """Multi-headed attention from 'Attention Is All You Need' paper. Modified to use sliding window attention: Longformer
     and "Generating Long Sequences with Sparse Transformers".
     """
 
-    def __init__(self, config: MistralConfig, layer_idx: Optional[int] = None, **kwargs):
+    def __init__(self, config: MistralConfig, layer_idx: int | None = None, **kwargs) -> None:
         super().__init__(**kwargs)
         self.config = config
         self.layer_idx = layer_idx
@@ -257,10 +248,8 @@ class TFMistralAttention(keras.layers.Layer):
         self.attention_dropout = config.attention_dropout
 
         if (self.head_dim * self.num_heads) != self.hidden_size:
-            raise ValueError(
-                f"hidden_size must be divisible by num_heads (got `hidden_size`: {self.hidden_size}"
-                f" and `num_heads`: {self.num_heads})."
-            )
+            msg = f"hidden_size must be divisible by num_heads (got `hidden_size`: {self.hidden_size}" f" and `num_heads`: {self.num_heads})."
+            raise ValueError(msg)
         self.q_proj = keras.layers.Dense(self.num_heads * self.head_dim, use_bias=False, name="q_proj")
         self.k_proj = keras.layers.Dense(self.num_key_value_heads * self.head_dim, use_bias=False, name="k_proj")
         self.v_proj = keras.layers.Dense(self.num_key_value_heads * self.head_dim, use_bias=False, name="v_proj")
@@ -276,39 +265,30 @@ class TFMistralAttention(keras.layers.Layer):
 
     def _shape(self, tensor: tf.Tensor, seq_len: int, bsz: int):
         tensor = tf.reshape(tensor, (bsz, seq_len, self.num_heads, self.head_dim))
-        tensor = tf.transpose(tensor, perm=(0, 2, 1, 3))
-        return tensor
+        return tf.transpose(tensor, perm=(0, 2, 1, 3))
 
     def call(
         self,
         hidden_states: tf.Tensor,
-        attention_mask: Optional[tf.Tensor] = None,
-        position_ids: Optional[tf.Tensor] = None,
-        past_key_value: Optional[Tuple[tf.Tensor]] = None,
-        output_attentions: Optional[bool] = False,
-        use_cache: Optional[bool] = False,
+        attention_mask: tf.Tensor | None = None,
+        position_ids: tf.Tensor | None = None,
+        past_key_value: tuple[tf.Tensor] | None = None,
+        output_attentions: bool | None = False,
+        use_cache: bool | None = False,
         training=None,
         **kwargs,
-    ) -> Tuple[tf.Tensor, Optional[tf.Tensor], Optional[Tuple[tf.Tensor]]]:
+    ) -> tuple[tf.Tensor, tf.Tensor | None, tuple[tf.Tensor] | None]:
         if "padding_mask" in kwargs:
-            warnings.warn(
-                "Passing `padding_mask` is deprecated and will be removed in v4.37. Please make sure use `attention_mask` instead.`"
-            )
+            warnings.warn("Passing `padding_mask` is deprecated and will be removed in v4.37. Please make sure use `attention_mask` instead.`")
         bsz, q_len, _ = shape_list(hidden_states)
 
         query_states = self.q_proj(hidden_states)
         key_states = self.k_proj(hidden_states)
         value_states = self.v_proj(hidden_states)
 
-        query_states = tf.transpose(
-            tf.reshape(query_states, (bsz, q_len, self.num_heads, self.head_dim)), perm=(0, 2, 1, 3)
-        )
-        key_states = tf.transpose(
-            tf.reshape(key_states, (bsz, q_len, self.num_key_value_heads, self.head_dim)), perm=(0, 2, 1, 3)
-        )
-        value_states = tf.transpose(
-            tf.reshape(value_states, (bsz, q_len, self.num_key_value_heads, self.head_dim)), perm=(0, 2, 1, 3)
-        )
+        query_states = tf.transpose(tf.reshape(query_states, (bsz, q_len, self.num_heads, self.head_dim)), perm=(0, 2, 1, 3))
+        key_states = tf.transpose(tf.reshape(key_states, (bsz, q_len, self.num_key_value_heads, self.head_dim)), perm=(0, 2, 1, 3))
+        value_states = tf.transpose(tf.reshape(value_states, (bsz, q_len, self.num_key_value_heads, self.head_dim)), perm=(0, 2, 1, 3))
 
         kv_seq_len = shape_list(key_states)[-2]
         if past_key_value is not None:
@@ -360,7 +340,7 @@ class TFMistralAttention(keras.layers.Layer):
 
         return attn_output, attn_weights, past_key_value
 
-    def build(self, input_shape=None):
+    def build(self, input_shape=None) -> None:
         if self.built:
             return
         self.built = True
@@ -379,7 +359,7 @@ class TFMistralAttention(keras.layers.Layer):
 
 
 class TFMistralDecoderLayer(keras.layers.Layer):
-    def __init__(self, config: MistralConfig, layer_idx: int, **kwargs):
+    def __init__(self, config: MistralConfig, layer_idx: int, **kwargs) -> None:
         super().__init__(**kwargs)
         self.hidden_size = config.hidden_size
 
@@ -387,22 +367,20 @@ class TFMistralDecoderLayer(keras.layers.Layer):
 
         self.mlp = TFMistralMLP(config, name="mlp")
         self.input_layernorm = TFMistralRMSNorm(config.hidden_size, eps=config.rms_norm_eps, name="input_layernorm")
-        self.post_attention_layernorm = TFMistralRMSNorm(
-            config.hidden_size, eps=config.rms_norm_eps, name="post_attention_layernorm"
-        )
+        self.post_attention_layernorm = TFMistralRMSNorm(config.hidden_size, eps=config.rms_norm_eps, name="post_attention_layernorm")
 
     def call(
         self,
         hidden_states: tf.Tensor,
-        attention_mask: Optional[tf.Tensor] = None,
-        position_ids: Optional[tf.Tensor] = None,
-        past_key_value: Optional[Tuple[tf.Tensor]] = None,
-        output_attentions: Optional[bool] = False,
-        use_cache: Optional[bool] = False,
+        attention_mask: tf.Tensor | None = None,
+        position_ids: tf.Tensor | None = None,
+        past_key_value: tuple[tf.Tensor] | None = None,
+        output_attentions: bool | None = False,
+        use_cache: bool | None = False,
         **kwargs,
-    ) -> Tuple[tf.Tensor, Optional[Tuple[tf.Tensor, tf.Tensor]]]:
-        """
-        Args:
+    ) -> tuple[tf.Tensor, tuple[tf.Tensor, tf.Tensor] | None]:
+        """Args:
+        ----
             hidden_states (`tf.Tensor`): input to the layer of shape `(batch, seq_len, embed_dim)`
             attention_mask (`tf.Tensor`, *optional*): attention mask of size
                 `(batch, sequence_length)` where padding elements are indicated by 0.
@@ -412,12 +390,11 @@ class TFMistralDecoderLayer(keras.layers.Layer):
             use_cache (`bool`, *optional*):
                 If set to `True`, `past_key_values` key value states are returned and can be used to speed up decoding
                 (see `past_key_values`).
-            past_key_value (`Tuple(tf.Tensor)`, *optional*): cached past key and value projection states
+            past_key_value (`Tuple(tf.Tensor)`, *optional*): cached past key and value projection states.
+
         """
         if "padding_mask" in kwargs:
-            warnings.warn(
-                "Passing `padding_mask` is deprecated and will be removed in v4.37. Please make sure use `attention_mask` instead.`"
-            )
+            warnings.warn("Passing `padding_mask` is deprecated and will be removed in v4.37. Please make sure use `attention_mask` instead.`")
 
         residual = hidden_states
 
@@ -450,7 +427,7 @@ class TFMistralDecoderLayer(keras.layers.Layer):
 
         return outputs
 
-    def build(self, input_shape=None):
+    def build(self, input_shape=None) -> None:
         if self.built:
             return
         self.built = True
@@ -470,16 +447,17 @@ class TFMistralDecoderLayer(keras.layers.Layer):
 
 @keras_serializable
 class TFMistralMainLayer(keras.layers.Layer):
-    """
-    Transformer decoder consisting of *config.num_hidden_layers* layers. Each layer is a [`MistralDecoderLayer`]
+    """Transformer decoder consisting of *config.num_hidden_layers* layers. Each layer is a [`MistralDecoderLayer`].
 
     Args:
+    ----
         config: MistralConfig
+
     """
 
     config_class = MistralConfig
 
-    def __init__(self, config: MistralConfig, **kwargs):
+    def __init__(self, config: MistralConfig, **kwargs) -> None:
         super().__init__(**kwargs)
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
@@ -491,10 +469,7 @@ class TFMistralMainLayer(keras.layers.Layer):
             output_dim=config.hidden_size,
             name="embed_tokens",
         )
-        self.layers = [
-            TFMistralDecoderLayer(config, layer_idx, name=f"layers.{layer_idx}")
-            for layer_idx in range(config.num_hidden_layers)
-        ]
+        self.layers = [TFMistralDecoderLayer(config, layer_idx, name=f"layers.{layer_idx}") for layer_idx in range(config.num_hidden_layers)]
         self._attn_implementation = config._attn_implementation
         self.norm = TFMistralRMSNorm(config.hidden_size, eps=config.rms_norm_eps, name="norm")
         self.config = config
@@ -502,7 +477,7 @@ class TFMistralMainLayer(keras.layers.Layer):
     def get_input_embeddings(self):
         return self.embed_tokens
 
-    def set_input_embeddings(self, value):
+    def set_input_embeddings(self, value) -> None:
         self.embed_tokens = value
 
     def _prepare_decoder_attention_mask(self, attention_mask, input_shape, inputs_embeds, past_key_values_length):
@@ -519,9 +494,7 @@ class TFMistralMainLayer(keras.layers.Layer):
         if attention_mask is not None:
             # [bsz, seq_len] -> [bsz, 1, tgt_seq_len, src_seq_len]
             expanded_attn_mask = _expand_mask(attention_mask, inputs_embeds.dtype, tgt_len=input_shape[-1])
-            combined_attention_mask = (
-                expanded_attn_mask if combined_attention_mask is None else expanded_attn_mask + combined_attention_mask
-            )
+            combined_attention_mask = expanded_attn_mask if combined_attention_mask is None else expanded_attn_mask + combined_attention_mask
 
         return combined_attention_mask
 
@@ -529,24 +502,26 @@ class TFMistralMainLayer(keras.layers.Layer):
     def call(
         self,
         input_ids: tf.Tensor = None,
-        attention_mask: Optional[tf.Tensor] = None,
-        position_ids: Optional[tf.Tensor] = None,
-        past_key_values: Optional[List[tf.Tensor]] = None,
-        inputs_embeds: Optional[tf.Tensor] = None,
-        use_cache: Optional[bool] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
-    ) -> Union[Tuple, TFBaseModelOutputWithPast]:
+        attention_mask: tf.Tensor | None = None,
+        position_ids: tf.Tensor | None = None,
+        past_key_values: list[tf.Tensor] | None = None,
+        inputs_embeds: tf.Tensor | None = None,
+        use_cache: bool | None = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
+    ) -> tuple | TFBaseModelOutputWithPast:
         # retrieve input_ids and inputs_embeds
         if input_ids is not None and inputs_embeds is not None:
-            raise ValueError("You cannot specify both decoder_input_ids and decoder_inputs_embeds at the same time")
-        elif input_ids is not None:
+            msg = "You cannot specify both decoder_input_ids and decoder_inputs_embeds at the same time"
+            raise ValueError(msg)
+        if input_ids is not None:
             batch_size, seq_length = shape_list(input_ids)
         elif inputs_embeds is not None:
             batch_size, seq_length, _ = shape_list(inputs_embeds)
         else:
-            raise ValueError("You have to specify either decoder_input_ids or decoder_inputs_embeds")
+            msg = "You have to specify either decoder_input_ids or decoder_inputs_embeds"
+            raise ValueError(msg)
 
         seq_length_with_past = seq_length
         past_key_values_length = 0
@@ -556,9 +531,7 @@ class TFMistralMainLayer(keras.layers.Layer):
             seq_length_with_past = seq_length_with_past + past_key_values_length
 
         if position_ids is None:
-            position_ids = tf.range(
-                start=past_key_values_length, limit=seq_length + past_key_values_length, dtype=tf.int64
-            )
+            position_ids = tf.range(start=past_key_values_length, limit=seq_length + past_key_values_length, dtype=tf.int64)
             position_ids = tf.reshape(tf.expand_dims(position_ids, 0), (-1, seq_length))
 
         else:
@@ -570,9 +543,7 @@ class TFMistralMainLayer(keras.layers.Layer):
 
         if attention_mask is None:
             attention_mask = tf.ones((batch_size, seq_length_with_past), dtype=tf.bool)
-        attention_mask = self._prepare_decoder_attention_mask(
-            attention_mask, (batch_size, seq_length), inputs_embeds, past_key_values_length
-        )
+        attention_mask = self._prepare_decoder_attention_mask(attention_mask, (batch_size, seq_length), inputs_embeds, past_key_values_length)
 
         hidden_states = inputs_embeds
 
@@ -620,7 +591,7 @@ class TFMistralMainLayer(keras.layers.Layer):
             attentions=all_self_attns,
         )
 
-    def build(self, input_shape=None):
+    def build(self, input_shape=None) -> None:
         if self.built:
             return
         self.built = True
@@ -763,7 +734,7 @@ MISTRAL_INPUTS_DOCSTRING = r"""
     MISTRAL_START_DOCSTRING,
 )
 class TFMistralModel(TFMistralPreTrainedModel):
-    def __init__(self, config: MistralConfig, *inputs, **kwargs):
+    def __init__(self, config: MistralConfig, *inputs, **kwargs) -> None:
         super().__init__(config, *inputs, **kwargs)
         self.model = TFMistralMainLayer(config, name="model")
 
@@ -772,16 +743,16 @@ class TFMistralModel(TFMistralPreTrainedModel):
     def call(
         self,
         input_ids: tf.Tensor = None,
-        attention_mask: Optional[tf.Tensor] = None,
-        position_ids: Optional[tf.Tensor] = None,
-        past_key_values: Optional[List[tf.Tensor]] = None,
-        inputs_embeds: Optional[tf.Tensor] = None,
-        use_cache: Optional[bool] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
-    ) -> Union[Tuple, TFBaseModelOutputWithPast]:
-        outputs = self.model(
+        attention_mask: tf.Tensor | None = None,
+        position_ids: tf.Tensor | None = None,
+        past_key_values: list[tf.Tensor] | None = None,
+        inputs_embeds: tf.Tensor | None = None,
+        use_cache: bool | None = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
+    ) -> tuple | TFBaseModelOutputWithPast:
+        return self.model(
             input_ids=input_ids,
             attention_mask=attention_mask,
             position_ids=position_ids,
@@ -792,9 +763,8 @@ class TFMistralModel(TFMistralPreTrainedModel):
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
         )
-        return outputs
 
-    def build(self, input_shape=None):
+    def build(self, input_shape=None) -> None:
         if self.built:
             return
         self.built = True
@@ -804,7 +774,7 @@ class TFMistralModel(TFMistralPreTrainedModel):
 
 
 class TFMistralForCausalLM(TFMistralPreTrainedModel, TFCausalLanguageModelingLoss):
-    def __init__(self, config, *inputs, **kwargs):
+    def __init__(self, config, *inputs, **kwargs) -> None:
         super().__init__(config, *inputs, **kwargs)
         self.model = TFMistralMainLayer(config, name="model")
         self.vocab_size = config.vocab_size
@@ -819,16 +789,16 @@ class TFMistralForCausalLM(TFMistralPreTrainedModel, TFCausalLanguageModelingLos
     def get_input_embeddings(self):
         return self.model.embed_tokens
 
-    def set_input_embeddings(self, value):
+    def set_input_embeddings(self, value) -> None:
         self.model.embed_tokens = value
 
     def get_output_embeddings(self):
         return self.lm_head
 
-    def set_output_embeddings(self, new_embeddings):
+    def set_output_embeddings(self, new_embeddings) -> None:
         self.lm_head = new_embeddings
 
-    def set_decoder(self, decoder):
+    def set_decoder(self, decoder) -> None:
         self.model = decoder
 
     def get_decoder(self):
@@ -839,24 +809,24 @@ class TFMistralForCausalLM(TFMistralPreTrainedModel, TFCausalLanguageModelingLos
     def call(
         self,
         input_ids: tf.Tensor = None,
-        attention_mask: Optional[tf.Tensor] = None,
-        position_ids: Optional[tf.Tensor] = None,
-        past_key_values: Optional[List[tf.Tensor]] = None,
-        inputs_embeds: Optional[tf.Tensor] = None,
-        labels: Optional[tf.Tensor] = None,
-        use_cache: Optional[bool] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
-    ) -> Union[Tuple, TFCausalLMOutputWithPast]:
-        r"""
-        Args:
+        attention_mask: tf.Tensor | None = None,
+        position_ids: tf.Tensor | None = None,
+        past_key_values: list[tf.Tensor] | None = None,
+        inputs_embeds: tf.Tensor | None = None,
+        labels: tf.Tensor | None = None,
+        use_cache: bool | None = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
+    ) -> tuple | TFCausalLMOutputWithPast:
+        r"""Args:
+        ----
             labels (`tf.Tensor` of shape `(batch_size, sequence_length)`, *optional*):
                 Labels for computing the masked language modeling loss. Indices should either be in `[0, ..., config.vocab_size]`
                 or -100 (see `input_ids` docstring). Tokens with indices set to `-100` are ignored
                 (masked), the loss is only computed for the tokens with labels in `[0, ..., config.vocab_size]`.
-        """
 
+        """
         # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
         outputs = self.model(
             input_ids=input_ids,
@@ -883,7 +853,7 @@ class TFMistralForCausalLM(TFMistralPreTrainedModel, TFCausalLanguageModelingLos
 
         if not return_dict:
             output = (logits,) + outputs[1:]
-            return ((loss,) + output) if loss is not None else output
+            return ((loss, *output)) if loss is not None else output
 
         return TFCausalLMOutputWithPast(
             loss=loss,
@@ -893,9 +863,7 @@ class TFMistralForCausalLM(TFMistralPreTrainedModel, TFCausalLanguageModelingLos
             attentions=outputs.attentions,
         )
 
-    def prepare_inputs_for_generation(
-        self, input_ids, past_key_values=None, attention_mask=None, inputs_embeds=None, **kwargs
-    ):
+    def prepare_inputs_for_generation(self, input_ids, past_key_values=None, attention_mask=None, inputs_embeds=None, **kwargs):
         # Omit tokens covered by past_key_values
         if past_key_values:
             input_ids = tf.expand_dims(input_ids[:, -1], -1)
@@ -914,7 +882,7 @@ class TFMistralForCausalLM(TFMistralPreTrainedModel, TFCausalLanguageModelingLos
             "use_cache": kwargs.get("use_cache"),
         }
 
-    def build(self, input_shape=None):
+    def build(self, input_shape=None) -> None:
         if self.built:
             return
         self.built = True
@@ -942,7 +910,7 @@ class TFMistralForCausalLM(TFMistralPreTrainedModel, TFCausalLanguageModelingLos
     MISTRAL_START_DOCSTRING,
 )
 class TFMistralForSequenceClassification(TFMistralPreTrainedModel, TFSequenceClassificationLoss):
-    def __init__(self, config, *inputs, **kwargs):
+    def __init__(self, config, *inputs, **kwargs) -> None:
         super().__init__(config, *inputs, **kwargs)
         self.num_labels = config.num_labels
         self.model = TFMistralMainLayer(config, name="model")
@@ -957,7 +925,7 @@ class TFMistralForSequenceClassification(TFMistralPreTrainedModel, TFSequenceCla
     def get_input_embeddings(self):
         return self.model.embed_tokens
 
-    def set_input_embeddings(self, value):
+    def set_input_embeddings(self, value) -> None:
         self.model.embed_tokens = value
 
     @unpack_inputs
@@ -965,24 +933,24 @@ class TFMistralForSequenceClassification(TFMistralPreTrainedModel, TFSequenceCla
     def call(
         self,
         input_ids: tf.Tensor = None,
-        attention_mask: Optional[tf.Tensor] = None,
-        position_ids: Optional[tf.Tensor] = None,
-        past_key_values: Optional[List[tf.Tensor]] = None,
-        inputs_embeds: Optional[tf.Tensor] = None,
-        labels: Optional[tf.Tensor] = None,
-        use_cache: Optional[bool] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
-    ) -> Union[Tuple, TFSequenceClassifierOutputWithPast]:
-        r"""
-        Args:
+        attention_mask: tf.Tensor | None = None,
+        position_ids: tf.Tensor | None = None,
+        past_key_values: list[tf.Tensor] | None = None,
+        inputs_embeds: tf.Tensor | None = None,
+        labels: tf.Tensor | None = None,
+        use_cache: bool | None = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
+    ) -> tuple | TFSequenceClassifierOutputWithPast:
+        r"""Args:
+        ----
             labels (`tf.Tensor` of shape `(batch_size, sequence_length)`, *optional*):
                 Labels for computing the masked language modeling loss. Indices should either be in `[0, ...,
                 config.vocab_size]` or -100 (see `input_ids` docstring). Tokens with indices set to `-100` are ignored
                 (masked), the loss is only computed for the tokens with labels in `[0, ..., config.vocab_size]`.
-        """
 
+        """
         transformer_outputs = self.model(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -1001,29 +969,26 @@ class TFMistralForSequenceClassification(TFMistralPreTrainedModel, TFSequenceCla
 
         if self.config.pad_token_id is None:
             sequence_lengths = -1
+        elif input_ids is not None:
+            sequence_lengths = tf.argmax(tf.cast(tf.math.equal(input_ids, self.config.pad_token_id), input_ids.dtype), axis=-1) - 1
+            sequence_lengths = tf.where(
+                sequence_lengths >= 0,
+                sequence_lengths,
+                tf.cast(shape_list(input_ids[-1]), sequence_lengths.dtype) - 1,
+            )
+            in_logits = tf.gather(logits, sequence_lengths, batch_dims=1, axis=1)
         else:
-            if input_ids is not None:
-                sequence_lengths = (
-                    tf.argmax(tf.cast(tf.math.equal(input_ids, self.config.pad_token_id), input_ids.dtype), axis=-1)
-                    - 1
-                )
-                sequence_lengths = tf.where(
-                    sequence_lengths >= 0,
-                    sequence_lengths,
-                    tf.cast(shape_list(input_ids[-1]), sequence_lengths.dtype) - 1,
-                )
-                in_logits = tf.gather(logits, sequence_lengths, batch_dims=1, axis=1)
-            else:
-                sequence_lengths = -1
-                logger.warning_once(
-                    f"{self.__class__.__name__} will not detect padding tokens in `inputs_embeds`. Results may be "
-                    "unexpected if using padding tokens in conjunction with `inputs_embeds.`"
-                )
+            sequence_lengths = -1
+            logger.warning_once(
+                f"{self.__class__.__name__} will not detect padding tokens in `inputs_embeds`. Results may be "
+                "unexpected if using padding tokens in conjunction with `inputs_embeds.`"
+            )
         loss = None
 
         if labels is not None:
             if self.config.pad_token_id is None and logits_shape[0] != 1:
-                raise ValueError("Cannot handle batch sizes > 1 if no padding token is defined.")
+                msg = "Cannot handle batch sizes > 1 if no padding token is defined."
+                raise ValueError(msg)
 
             if not tf.is_tensor(sequence_lengths):
                 in_logits = logits[0 : logits_shape[0], sequence_lengths]
@@ -1033,7 +998,7 @@ class TFMistralForSequenceClassification(TFMistralPreTrainedModel, TFSequenceCla
 
         if not return_dict:
             output = (pooled_logits,) + transformer_outputs[1:]
-            return ((loss,) + output) if loss is not None else output
+            return ((loss, *output)) if loss is not None else output
 
         return TFSequenceClassifierOutputWithPast(
             loss=loss,
@@ -1043,7 +1008,7 @@ class TFMistralForSequenceClassification(TFMistralPreTrainedModel, TFSequenceCla
             attentions=transformer_outputs.attentions,
         )
 
-    def build(self, input_shape=None):
+    def build(self, input_shape=None) -> None:
         if self.built:
             return
         self.built = True
