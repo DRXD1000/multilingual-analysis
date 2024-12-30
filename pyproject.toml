@@ -3,7 +3,7 @@ name = "multilingual-analysis"
 version = "0.1.0"
 description = "Add your description here"
 authors = [
-    { name = "Matthias Uhlig", email = "matthias.uhlig@aol.de" }
+    { name = "Matthias Uhlig", email = "" }
 ]
 dependencies = [
     "pandas>=2.2.3",
@@ -11,6 +11,12 @@ dependencies = [
     "torch>=2.5.1",
     "tenacity>=9.0.0",
     "requests>=2.32.3",
+    "tqdm>=4.67.1",
+    "transformers",
+    "matplotlib>=3.9.4",
+    "seaborn>=0.13.2",
+    "numpy>=2.0.2",
+    "langdetect>=1.0.9",
 ]
 readme = "README.md"
 requires-python = ">= 3.9"
@@ -28,3 +34,6 @@ allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/multilingual_analysis"]
+
+[tool.uv.sources]
+transformers = { git = "https://github.com/DRXD1000/transformers" }
