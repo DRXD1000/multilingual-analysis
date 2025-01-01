@@ -1,7 +1,7 @@
 import logging
 import random
 import sys
-
+import time
 import torch
 from langdetect import detect_langs
 from tqdm import tqdm
@@ -22,7 +22,7 @@ device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cp
 
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 model = AutoModelForCausalLM.from_pretrained(model_name,torch_dtype=torch.bfloat16).to(device)
-
+tokenizer.add_special_tokens({'pad_token': tokenizer.eos_token})
 
 def tracefunc(frame, event, arg, indent=None):
     if indent is None:
@@ -32,6 +32,54 @@ def tracefunc(frame, event, arg, indent=None):
     elif event == "return":
         indent[0] -= 2
     return tracefunc
+
+def BatchedPrompting(model, prompts, candidate_premature_layers, batch_size=10):
+    """
+    Processes a batch of prompts to generate hidden embeddings, token-level hidden embeddings,
+    and answers for each prompt using the given model.
+
+    Args:
+        model: The model used for generation.
+        prompts: A list of prompts to process.
+        candidate_premature_layers: A list of candidate premature layers.
+        batch_size: The number of prompts to process in each batch.
+
+    Returns:
+        results: A list of dictionaries containing hidden_embed, hidden_embed_token_level, and answer for each prompt.
+    """
+    results = []
+
+    # Process prompts in batches
+    for batch_start in range(0, len(prompts), batch_size):
+        batch_prompts = prompts[batch_start:batch_start + batch_size]
+        inputs = tokenizer(batch_prompts, return_tensors="pt", padding=True, truncation=True).to(device)
+        hidden_states, outputs = model.generate(
+            input_ids=inputs.input_ids, 
+            max_new_tokens=64, 
+            candidate_premature_layers=candidate_premature_layers, 
+            output_hidden_states=True
+        )
+
+        for i, prompt in enumerate(batch_prompts):
+            hidden_embed = {}
+            hidden_embed_token_level = {}
+
+            for early_exit_layer in candidate_premature_layers:
+                hidden_embed[early_exit_layer] = tokenizer.decode(hidden_states[early_exit_layer][i])
+                hidden_embed_token_level[early_exit_layer] = [
+                    tokenizer.decode(tok) for tok in hidden_states[early_exit_layer][i]
+                ]
+
+            answer = tokenizer.decode(outputs[i]).replace("<pad> ", "").replace("</s>", "")
+
+            results.append({
+                "hidden_embed": hidden_embed,
+                "hidden_embed_token_level": hidden_embed_token_level,
+                "answer": answer
+            })
+
+    return results
+
 
 
 def Prompting(model, prompt, candidate_premature_layers):
@@ -141,7 +189,8 @@ def plot_lang_distribution(lang_distribution, candidate_langs, candidate_layers,
     plt.title("Layerwise Language Distribution")
     plt.xlabel("Layer")
     plt.ylabel("Language")
-    plt.savefig(image_dir / model_name.replace("/","-") +"_lang_distribution.png")
+    file_name = model_name.replace("/","-") +"_lang_distribution.png"
+    plt.savefig(image_dir / file_name)
     if show_plot:
         plt.show()
 
@@ -149,31 +198,31 @@ def plot_lang_distribution(lang_distribution, candidate_langs, candidate_layers,
 def main(argv) -> None:
     de_prompts = [
         "Frage: Was sind die besten deutschen Filme? Antwort: ",
-        "Frage: Was sind die besten deutschen Bücher? Antwort: ",
-        "Frage: Wie kann ich meine Deutschkenntnisse verbessern? Antwort: ",
-        "Kann mir jemand ein gutes Restaurant in München empfehlen?",
-        "Was sind die besten Sehenswürdigkeiten in Berlin?",
-        "Wie kann ich meine Deutschkenntnisse verbessern?",
-        "Was sind die besten Tipps für einen guten Schlaf?",
-        "Wo kann ich in Hamburg gut shoppen?",
-        "Wie kann ich meine Zeit besser nutzen?",
-        "Was sind die besten deutschen Serien?",
-        "Was sind die besten deutschen Lieder?"
-        "Kannst du drei günstige Reiseziele in Österreich für Einzelreisende empfehlen?",
-        "Was sind effektive Strategien zur Stressbewältigung?"
+        # "Frage: Was sind die besten deutschen Bücher? Antwort: ",
+        # "Frage: Wie kann ich meine Deutschkenntnisse verbessern? Antwort: ",
+        # "Kann mir jemand ein gutes Restaurant in München empfehlen?",
+        # "Was sind die besten Sehenswürdigkeiten in Berlin?",
+        # "Wie kann ich meine Deutschkenntnisse verbessern?",
+        # "Was sind die besten Tipps für einen guten Schlaf?",
+        # "Wo kann ich in Hamburg gut shoppen?",
+        # "Wie kann ich meine Zeit besser nutzen?",
+        # "Was sind die besten deutschen Serien?",
+        # "Was sind die besten deutschen Lieder?"
+        # "Kannst du drei günstige Reiseziele in Österreich für Einzelreisende empfehlen?",
+        # "Was sind effektive Strategien zur Stressbewältigung?"
     ]
 
     en_prompts = [
         "What are some popular tourist attractions in New York City?",
-        "How can I improve my English writing skills?",
-        "Can you recommend three must-read books from the science fiction genre?",
-        "What are some effective strategies for time management?",
-        "Where can I find authentic Italian cuisine in London?",
-        "What are some tips for maintaining a healthy lifestyle?",
-        "Can you suggest three classic movies from the 20th century?",
-        "How can I develop good public speaking skills?",
-        "What are some unique cultural traditions in Japan?",
-        "Can you recommend three budget-friendly destinations for solo travelers?"
+        # "How can I improve my English writing skills?",
+        # "Can you recommend three must-read books from the science fiction genre?",
+        # "What are some effective strategies for time management?",
+        # "Where can I find authentic Italian cuisine in London?",
+        # "What are some tips for maintaining a healthy lifestyle?",
+        # "Can you suggest three classic movies from the 20th century?",
+        # "How can I develop good public speaking skills?",
+        # "What are some unique cultural traditions in Japan?",
+        # "Can you recommend three budget-friendly destinations for solo travelers?"
     ]
 
     prompts = en_prompts + de_prompts
@@ -189,9 +238,14 @@ def main(argv) -> None:
     )  # [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28,29,30]
 
     lst_lang_distribution = []
-    for prompt in tqdm(prompts):
-        hidden_embed, hidden_embed_token_level, answer = Prompting(model, prompt, candidate_premature_layers)
-        lang_stats = layerwise_lang_stats(hidden_embed_token_level, candidate_langs)
+
+    time_start = time.time()
+
+    batched_results = BatchedPrompting(model, prompts, candidate_premature_layers, 10)
+
+    print(f"Batching took {time.time() - time_start:.2f} seconds")
+    for result in batched_results:
+        lang_stats = layerwise_lang_stats(result["hidden_embed_token_level"], candidate_langs)
 
         # if only draw english and non-english
         # lang_distribution = layerwise_lang_distribution_bi(lang_distribution)
