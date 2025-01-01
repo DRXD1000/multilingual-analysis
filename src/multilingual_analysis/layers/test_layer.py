@@ -3,7 +3,7 @@ import random
 import sys
 import time
 import torch
-from langdetect import detect_langs
+from fast_langdetect import detect
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -107,15 +107,15 @@ def layerwise_lang_stats(hidden_embed_token_level, candidate_langs=None):
         lang_stats[layer] = {"total_count": 0}
         for token in hidden_embed_token_level[layer]:
             try:
-                lang_pred = detect_langs(token)
+                lang_pred = detect(token,low_memory=False)
             except:
                 lang_pred = None
-            if lang_pred and lang_pred[0].prob > 0.5 and (lang_pred[0].lang in candidate_langs):
+            if lang_pred and lang_pred["score"] > 0.5 and (lang_pred["lang"] in candidate_langs):
                 lang_stats[layer]["total_count"] += 1
-                if lang_pred[0].lang in lang_stats[layer]:
-                    lang_stats[layer][lang_pred[0].lang] += 1
+                if lang_pred["lang"] in lang_stats[layer]:
+                    lang_stats[layer][lang_pred["lang"]] += 1
                 else:
-                    lang_stats[layer][lang_pred[0].lang] = 1
+                    lang_stats[layer][lang_pred["lang"]] = 1
     return lang_stats
 
 
