@@ -3,18 +3,16 @@ import os
 import random
 import sys
 import time
-from tqdm import tqdm
-import torch
-from fast_langdetect import detect
-from transformers import AutoModelForCausalLM, AutoTokenizer
-
-
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
+import torch
+from fast_langdetect import detect
 from loguru import logger
+from tqdm import tqdm
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
 
@@ -81,6 +79,9 @@ def BatchedPrompting(model, prompts, candidate_premature_layers, batch_size=10):
                 "hidden_embed_token_level": hidden_embed_token_level,
                 "answer": answer
             })
+
+    del model
+    torch.cuda.empty_cache()
 
     return results
 
