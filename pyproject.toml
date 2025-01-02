@@ -21,6 +21,8 @@ dependencies = [
     "sentencepiece>=0.2.0",
     "protobuf>=5.29.2",
     "fast-langdetect>=0.2.2",
+    "huggingface-hub[hf-transfer]>=0.27.0",
+    "loguru>=0.7.3",
 ]
 readme = "README.md"
 requires-python = ">= 3.9"
