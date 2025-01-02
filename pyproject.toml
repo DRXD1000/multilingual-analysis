@@ -22,8 +22,6 @@ dependencies = [
     "fast-langdetect>=0.2.2",
     "huggingface-hub[hf-transfer]>=0.27.0",
     "loguru>=0.7.3",
-    "jupyter>=1.1.1",
-    "ipywidgets>=8.1.5",
     "transformers",
 ]
 readme = "README.md"
