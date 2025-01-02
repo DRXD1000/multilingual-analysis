@@ -58,7 +58,8 @@ def create_line_plot(language_stats: list[dict], save_path: PosixPath) -> None:
     plt.ylabel("Mean Values")
     plt.title("Mean Values of en and de by Key")
     plt.grid(True)
-
+    # Set all x values as labels on the x-axis
+    plt.xticks(ticks=range(len(means)), labels=list(means.keys()), rotation=45)
     # Save the plot
     plt.savefig(save_path)
     plt.close()
