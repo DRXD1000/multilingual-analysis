@@ -18,7 +18,9 @@ os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
 
 random.seed(112)
 
-model_name = "ibm-granite/granite-3.1-1b-a400m-base"#"ibm-granite/granite-3.1-2b-base"#"BSC-LT/salamandra-2b"
+max_samples = 20
+max_seq_length = 128
+model_name = "ibm-granite/granite-3.1-1b-a400m-base"
 
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
@@ -38,7 +40,7 @@ def BatchedPrompting(model, prompts:list[str], candidate_premature_layers:list[i
         inputs = tokenizer(batch_prompts, return_tensors="pt", padding=True, truncation=True).to(device)
         hidden_states, outputs = model.generate(
             input_ids=inputs.input_ids,
-            max_new_tokens=128,
+            max_new_tokens=max_seq_length,
             candidate_premature_layers=candidate_premature_layers,
             output_hidden_states=True
         )
@@ -90,7 +92,7 @@ def main() -> None:
         index += 1
 
         # Break the loop if we have collected 40 prompts
-        if len(prompts) >= 2:
+        if len(prompts) >= max_samples:
             break
 
     candidate_premature_layers = list(range(model.config.num_hidden_layers + 1))

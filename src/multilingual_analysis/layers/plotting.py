@@ -3,11 +3,12 @@ from pathlib import PosixPath
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import seaborn as sns
 
 
-def create_line_plot(language_stats:list[dict],save_path:PosixPath) -> None:
-    """Create a detailed lineplot for en and de tokens."""
+def create_line_plot(language_stats: list[dict], save_path: PosixPath) -> None:
+    """Create a detailed lineplot for en and de tokens using seaborn."""
     # Initialize dictionaries to store cumulative sums and counts
     sums = {}
     counts = {}
@@ -31,27 +32,36 @@ def create_line_plot(language_stats:list[dict],save_path:PosixPath) -> None:
         for key in sums
     }
 
-    # Extract x-axis values and mean values for 'en' and 'de'
-    x = list(means.keys())
-    mean_en_values = [means[k]["mean_en"] for k in x]
-    mean_de_values = [means[k]["mean_de"] for k in x]
+    # Prepare data for seaborn
+    data_for_plot = []
+    for key, values in means.items():
+        data_for_plot.append({
+            "key": key,
+            "language": "en",
+            "mean_value": values["mean_en"]
+        })
+        data_for_plot.append({
+            "key": key,
+            "language": "de",
+            "mean_value": values["mean_de"]
+        })
 
-    # Plot the data
+    # Convert to DataFrame
+    df = pd.DataFrame(data_for_plot)
+
+    # Plot the data using seaborn
     plt.figure(figsize=(10, 6))
-    plt.plot(x, mean_en_values, label="Mean en", marker="o")
-    plt.plot(x, mean_de_values, label="Mean de", marker="o")
-
-    # Explicitly set x-axis ticks
-    plt.xticks(ticks=x)  # Ensures all x values are displayed
+    sns.lineplot(data=df, x="key", y="mean_value", hue="language", markers=True)
 
     # Customize the plot
     plt.xlabel("Keys")
     plt.ylabel("Mean Values")
     plt.title("Mean Values of en and de by Key")
-    plt.legend()
     plt.grid(True)
 
+    # Save the plot
     plt.savefig(save_path)
+    plt.close()
 
 
 def plot_lang_distribution(lang_distribution, candidate_langs:list[str], candidate_layers:list[int],save_path:PosixPath) -> None:
